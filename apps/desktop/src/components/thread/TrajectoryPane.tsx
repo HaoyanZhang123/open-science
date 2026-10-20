@@ -211,7 +211,7 @@ export const TrajectoryPane = memo(function TrajectoryPane({
   );
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-surface">
+    <div className="flex h-full flex-col bg-surface">
       <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <IconBranchOutlineRegular size={14} />

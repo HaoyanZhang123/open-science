@@ -29,7 +29,7 @@ export function InspectorShell({
     // A file preview is document content: its text keeps the WebView's own
     // menu (Copy, Look Up) — see lib/nativeMenu.
     <div
-      className="h-full border-l border-border bg-surface"
+      className="h-full bg-surface"
       data-variant={inspector.variant}
       data-native-menu
     >

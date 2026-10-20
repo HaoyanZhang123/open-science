@@ -5,6 +5,7 @@ import { INSPECTOR_MAX, INSPECTOR_MIN, useOverlayTitlebar, useUiStore } from "@/
 import { cn } from "@/lib/cn";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useDragDivider } from "@/lib/useDragDivider";
+import { TITLEBAR_HEIGHT_PX, TRAFFIC_LIGHT_INSET_PX } from "@/lib/titlebar";
 
 /** Dragging the divider below this pane width closes the pane — the same
  *  snap-shut behaviour as the sidebar. Sits below INSPECTOR_MIN for a clear snap. */
@@ -63,7 +64,8 @@ export function RightPane({
 
   return (
     <div
-      // The left rule is the same 1px line as the sidebar's and a split's divider.
+      // The left rule is the same 1px line as the sidebar's and a split's
+      // divider. The column draws it, so the panes inside it don't.
       className="relative hidden h-full shrink-0 border-l border-border lg:block"
       style={{ width: dragValue ?? inspectorWidth }}
     >
@@ -98,7 +100,7 @@ export function RightPane({
  * what the Screen strip above them uses, so the three agree.
  */
 export const PANE_HEADER =
-  "flex h-8 shrink-0 select-none items-center gap-1 border-b border-faint px-2.5";
+  "flex h-8 shrink-0 select-none items-center gap-1 border-b border-faint px-2.5 has-[[data-titlebar-inset]]:h-auto";
 
 /** A header that stays out of sight until it is needed: shown while hovered or
  *  focused, or while one of its menus is open (so it does not fade from under
@@ -127,8 +129,22 @@ export function PaneTitlebarInset() {
   const clearsLights = useContext(PaneHeaderClearsLights);
   const overlayTitlebar = useOverlayTitlebar();
   if (!(inspectorMaximized || clearsLights) || !overlayTitlebar) return null;
-  // Headers pad 16px (px-4); the lights need ~78px clear in total.
-  return <div data-tauri-drag-region className="w-[62px] shrink-0 self-stretch" />;
+  // The same geometry as every other strip that clears the lights (see
+  // lib/titlebar): the row is TITLEBAR_HEIGHT_PX tall — the lights are
+  // positioned for that centre — and TRAFFIC_LIGHT_INSET_PX clear on the left,
+  // less the header's own px-2.5; both counter-scaled by page zoom. The header
+  // lets this set its height (`has-[[data-titlebar-inset]]:h-auto`).
+  return (
+    <div
+      data-tauri-drag-region
+      data-titlebar-inset
+      className="shrink-0 self-stretch"
+      style={{
+        minHeight: `calc(${TITLEBAR_HEIGHT_PX}px / var(--zoom))`,
+        width: `calc(${TRAFFIC_LIGHT_INSET_PX}px / var(--zoom) - 0.625rem)`,
+      }}
+    />
+  );
 }
 
 /** Maximize / restore toggle for the pane's header row (session pages only —

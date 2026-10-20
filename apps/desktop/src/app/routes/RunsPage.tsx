@@ -298,7 +298,7 @@ export function RunsPane({
 }) {
   const { t } = useTranslation(["runs", "common"]);
   return (
-    <div className="flex h-full flex-col border-l border-border bg-surface">
+    <div className="flex h-full flex-col bg-surface">
       {/* The one pane header every pane beside a conversation uses. It was a
           48px row of its own here, under a 32px session header — see the
           `compactHeader` note in SessionView: two misaligned windows. */}

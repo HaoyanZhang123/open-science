@@ -71,7 +71,7 @@ export function SubagentPane({
     });
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-surface">
+    <div className="flex h-full flex-col bg-surface">
       <div className={PANE_HEADER}>
         <PaneTitlebarInset />
         <Bot size={13} strokeWidth={1.5} className="shrink-0 text-muted" />

@@ -339,7 +339,7 @@ export function FilePreviewInspector({
     <div className={cn("flex h-full flex-col", embedded && "overflow-hidden rounded-card border border-border bg-surface")}>
       <header
         className={cn(
-          "flex shrink-0 select-none items-center border-b",
+          "flex shrink-0 select-none items-center border-b has-[[data-titlebar-inset]]:h-auto",
           embedded
             ? "h-10 gap-2 border-border px-3"
             : // Tiled pane and right-hand inspector are both 32px: a pane beside

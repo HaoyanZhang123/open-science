@@ -431,7 +431,7 @@ export function NotebookEditor({
         // 32px either way: a notebook beside a conversation has to line up
         // with that conversation's header. See `PANE_HEADER`.
         className={cn(
-          "flex h-8 shrink-0 select-none items-center gap-1 border-b px-2.5",
+          "flex h-8 shrink-0 select-none items-center gap-1 border-b px-2.5 has-[[data-titlebar-inset]]:h-auto",
           compactHeader ? "border-faint" : "border-border",
         )}
       >
