@@ -63,7 +63,8 @@ export function RightPane({
 
   return (
     <div
-      className="relative hidden h-full shrink-0 lg:block"
+      // The left rule is the same 1px line as the sidebar's and a split's divider.
+      className="relative hidden h-full shrink-0 border-l border-border lg:block"
       style={{ width: dragValue ?? inspectorWidth }}
     >
       <div className="h-full">{children}</div>
@@ -97,7 +98,7 @@ export function RightPane({
  * what the Screen strip above them uses, so the three agree.
  */
 export const PANE_HEADER =
-  "flex h-8 shrink-0 select-none items-center gap-1 border-b border-border px-2.5";
+  "flex h-8 shrink-0 select-none items-center gap-1 border-b border-faint px-2.5";
 
 /** A header that stays out of sight until it is needed: shown while hovered or
  *  focused, or while one of its menus is open (so it does not fade from under

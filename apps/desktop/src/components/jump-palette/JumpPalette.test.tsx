@@ -72,7 +72,7 @@ describe("⌘J jump palette", () => {
     expect(screen.queryByPlaceholderText(/Search projects, screens/)).not.toBeInTheDocument();
   });
 
-  it("empty, it shows only the quick actions and recent conversations; typing reaches everything", async () => {
+  it("empty, it shows the quick actions, recently used projects and recent conversations; typing reaches everything", async () => {
     const user = userEvent.setup();
     useRuntimeStore.setState({
       sessions: [{ id: "s1", title: "Fold the thing", directory: "/w/P", updated: 5 }],
@@ -83,13 +83,35 @@ describe("⌘J jump palette", () => {
     const list = screen.getByRole("listbox");
     expect(within(list).getByText("Recent")).toBeInTheDocument();
     expect(within(list).getByText("Fold the thing")).toBeInTheDocument();
-    expect(within(list).queryByText("Projects")).not.toBeInTheDocument();
-    expect(within(list).queryByText("Quantum")).not.toBeInTheDocument();
+    // Projects, the one used last first.
+    expect(within(list).getByText("Projects")).toBeInTheDocument();
+    const projectRows = within(list).getAllByRole("option").filter((o) => o.getAttribute("data-value")?.startsWith("project:"));
+    expect(projectRows[0]).toHaveTextContent("Protein");
+    expect(within(list).queryByText("Folding")).not.toBeInTheDocument();
 
     await user.type(input, "quant");
     expect(within(list).getByText("Quantum")).toBeInTheDocument();
     // …and a new session there, found by the project's name.
     expect(within(list).getByText("New session in Quantum")).toBeInTheDocument();
+  });
+
+  it("empty, it lists at most five projects; typing reaches the rest", async () => {
+    const user = userEvent.setup();
+    useRuntimeStore.setState({
+      projects: ["A", "B", "C", "D", "E", "F"].map((id) => project(id, `Proj ${id}`)),
+      sessions: ["A", "B", "C", "D", "E", "F"].map((id, i) => ({ id: `s${id}`, title: `t${id}`, directory: `/w/${id}`, updated: 100 - i })),
+    });
+    renderPalette();
+    await user.keyboard("{Control>}{Shift>}j{/Shift}{/Control}");
+    const input = await screen.findByPlaceholderText(/Search projects, screens/);
+    const list = screen.getByRole("listbox");
+    const projectRows = () =>
+      within(list).getAllByRole("option").filter((o) => o.getAttribute("data-value")?.startsWith("project:"));
+    expect(projectRows().map((o) => o.textContent)).toEqual(
+      ["Proj A", "Proj B", "Proj C", "Proj D", "Proj E"].map((n) => expect.stringContaining(n)),
+    );
+    await user.type(input, "proj f");
+    expect(projectRows().map((o) => o.textContent)).toEqual([expect.stringContaining("Proj F")]);
   });
 
   it("⌘↵ opens a conversation that is not open anywhere beside the current pane", async () => {

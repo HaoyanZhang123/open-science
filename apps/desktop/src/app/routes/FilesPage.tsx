@@ -478,7 +478,7 @@ export function SessionFilesPane({
         </button>
       </div>
       {crumbs.length > 0 && (
-        <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-3 py-2 text-[12px]">
+        <div className="flex flex-wrap items-center gap-0.5 border-b border-faint px-3 py-2 text-[12px]">
           <button className="rounded px-1 text-link hover:bg-surface-2" onClick={() => setDir("")}>
             {baseName(sessionDir ?? workspace)}
           </button>

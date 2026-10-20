@@ -20,9 +20,12 @@ export function isJumpChord(e: KeyboardEvent): boolean {
   return isMac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.metaKey;
 }
 
-/** Before anything is typed: where the user most likely goes — one screen of
- *  rows. Once typing: everything that can match. */
-const IDLE_SECTIONS: JumpSection[] = ["actions", "recent"];
+/** Before anything is typed: where the user most likely goes — the quick
+ *  actions, the most recently used projects, the newest conversations. Once
+ *  typing: everything that can match. */
+const IDLE_SECTIONS: JumpSection[] = ["actions", "projects", "recent"];
+/** Projects shown before typing (already ordered by last use); typing reaches all. */
+const IDLE_PROJECTS = 5;
 const SEARCH_SECTIONS: JumpSection[] = ["actions", "projects", "screens", "panes", "sessions", "newIn"];
 
 /** Match on what the row SAYS — its label and where it lives — not on its
@@ -199,7 +202,8 @@ export function JumpPalette() {
           <Command.List className="max-h-[60vh] overflow-y-auto p-2">
             <Command.Empty className="px-3 py-6 text-center text-sm text-muted">{t("nav:jump.noResults")}</Command.Empty>
             {sections.map((section) => {
-              const rows = entries.filter((e) => e.section === section);
+              const all = entries.filter((e) => e.section === section);
+              const rows = !search.trim() && section === "projects" ? all.slice(0, IDLE_PROJECTS) : all;
               if (rows.length === 0) return null;
               return (
                 <Command.Group
