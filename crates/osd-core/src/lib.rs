@@ -26,6 +26,7 @@ pub mod runs;
 pub mod runs_index;
 pub mod runtime;
 pub mod session_sync;
+pub mod specialists;
 pub mod system_proxy;
 pub mod usage;
 pub mod usage_pricing;

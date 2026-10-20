@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bot, Check, Plus, Puzzle, Search, X } from "lucide-react";
-import { useRuntimeStore } from "@/lib/runtime";
+import { Bot, Check, ChevronRight, Plus, Puzzle, Search, X } from "lucide-react";
+import type { McpServer } from "@ai4s/sdk";
+import { getClient, useRuntimeStore } from "@/lib/runtime";
 import { cn } from "@/lib/cn";
 import { isGatewayWeb } from "@/lib/webMode";
+import { deleteSpecialist, isTauri, listSpecialists, saveSpecialist } from "@/lib/tauri";
+import { toast } from "@/lib/toast";
+import type { Specialist } from "@/lib/specialists";
+import { SpecialistAvatar } from "@/components/specialists/SpecialistAvatar";
+import { SpecialistEditor } from "@/components/specialists/SpecialistEditor";
 
 /**
  * What this workbench can do, and what it runs on.
@@ -30,11 +36,52 @@ export function SkillsPage() {
 
   const [query, setQuery] = useState("");
   const [installing, setInstalling] = useState(false);
+  // Specialists are files the desktop writes (#144); the web client has no
+  // path to them, so there they simply list as the subagents they are.
+  const canEditSpecialists = isTauri && !isGatewayWeb;
+  const [specialists, setSpecialists] = useState<Specialist[]>([]);
+  const [connectors, setConnectors] = useState<McpServer[]>([]);
+  const [editing, setEditing] = useState<Specialist | "new" | null>(null);
+  const reloadRuntimeConfig = useRuntimeStore((s) => s.reloadRuntimeConfig);
 
   useEffect(() => {
     if (connected) void loadCatalog();
     void detectTools();
   }, [connected, loadCatalog, detectTools]);
+
+  const refreshSpecialists = async () => {
+    if (!canEditSpecialists) return;
+    setSpecialists(await listSpecialists().catch(() => []));
+  };
+  useEffect(() => {
+    void refreshSpecialists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openEditor = async (target: Specialist | "new") => {
+    // Connectors are read when the editor opens, not with the page: they are
+    // only needed there, and the list may have changed in Settings since.
+    setConnectors((await getClient()?.listMcpServers().catch(() => null)) ?? []);
+    setEditing(target);
+  };
+
+  const onSaveSpecialist = async (specialist: Specialist, create: boolean) => {
+    await reloadRuntimeConfig(() => saveSpecialist(specialist, create));
+    await refreshSpecialists();
+    setEditing(null);
+    toast.success(
+      create
+        ? t("skills.specialists.created", { id: specialist.id })
+        : t("skills.specialists.saved", { id: specialist.id }),
+    );
+  };
+
+  const onDeleteSpecialist = async (id: string) => {
+    await reloadRuntimeConfig(() => deleteSpecialist(id));
+    await refreshSpecialists();
+    setEditing(null);
+    toast.success(t("skills.specialists.deleted", { id }));
+  };
 
   const entries = useMemo<Entry[]>(() => {
     const all: Entry[] = [
@@ -64,7 +111,13 @@ export function SkillsPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [skills, agents, query]);
   const skillRows = entries.filter((e) => e.kind === "skill");
-  const agentRows = entries.filter((e) => e.kind === "agent");
+  const specialistIds = new Set(specialists.map((s) => s.id));
+  // A specialist is an agent too; it is listed once, in its own section.
+  const agentRows = entries.filter((e) => e.kind === "agent" && !specialistIds.has(e.name));
+  const needle = query.trim().toLowerCase();
+  const specialistRows = specialists.filter(
+    (s) => !needle || s.id.includes(needle) || s.description.toLowerCase().includes(needle),
+  );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -105,6 +158,38 @@ export function SkillsPage() {
                 {skillRows.map((entry) => (
                   <EntryRow key={`skill:${entry.name}`} entry={entry} />
                 ))}
+              </Section>
+            )}
+            {canEditSpecialists && (specialistRows.length > 0 || !needle) && (
+              <Section
+                title={t("skills.specialists.heading")}
+                count={specialists.length || undefined}
+                hint={t("skills.specialists.hint")}
+                action={
+                  <button
+                    onClick={() => void openEditor("new")}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-input border border-border px-2.5 text-[13px] text-text hover:bg-surface-2"
+                  >
+                    <Plus size={13} strokeWidth={1.5} />
+                    {t("skills.specialists.new")}
+                  </button>
+                }
+              >
+                {specialists.length === 0 ? (
+                  <button
+                    onClick={() => void openEditor("new")}
+                    className="w-full rounded-card border border-dashed border-border px-5 py-6 text-left hover:bg-surface-2/60"
+                  >
+                    <p className="text-[14px] text-text">{t("skills.specialists.emptyTitle")}</p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                      {t("skills.specialists.emptyBody")}
+                    </p>
+                  </button>
+                ) : (
+                  specialistRows.map((s) => (
+                    <SpecialistRow key={s.id} specialist={s} onOpen={() => void openEditor(s)} />
+                  ))
+                )}
               </Section>
             )}
             {agentRows.length > 0 && (
@@ -173,7 +258,37 @@ export function SkillsPage() {
           </Section>
         )}
       </div>
+
+      {editing !== null && (
+        <SpecialistEditor
+          initial={editing === "new" ? null : editing}
+          takenIds={agents.map((a) => a.name)}
+          skills={skills}
+          connectors={connectors}
+          onSave={onSaveSpecialist}
+          onDelete={onDeleteSpecialist}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** One specialist: the whole row opens its editor. */
+function SpecialistRow({ specialist, onOpen }: { specialist: Specialist; onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      title={specialist.description || undefined}
+      className="group -mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-4 rounded-xl px-2 py-2.5 text-left hover:bg-surface-2/60"
+    >
+      <SpecialistAvatar id={specialist.id} color={specialist.color} />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-[15px] text-text">{specialist.id}</h3>
+        <p className="mt-0.5 truncate text-[13px] text-muted">{specialist.description}</p>
+      </div>
+      <ChevronRight size={16} className="shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100" />
+    </button>
   );
 }
 
@@ -187,18 +302,28 @@ interface Entry {
 function Section({
   title,
   count,
+  hint,
+  action,
   children,
 }: {
   title: string;
   count?: number;
+  hint?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="mt-10">
-      <h2 className="mb-3 flex items-baseline gap-2 text-[15px] font-medium text-text">
-        {title}
-        {count !== undefined && <span className="font-normal text-muted">{count}</span>}
-      </h2>
+      <div className="mb-3 flex items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-baseline gap-2 text-[15px] font-medium text-text">
+            {title}
+            {count !== undefined && <span className="font-normal text-muted">{count}</span>}
+          </h2>
+          {hint && <p className="mt-0.5 text-[13px] text-muted">{hint}</p>}
+        </div>
+        {action}
+      </div>
       {children}
     </section>
   );

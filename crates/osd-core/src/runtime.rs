@@ -217,7 +217,7 @@ fn opencode_config_file(env: &Env) -> Result<PathBuf, String> {
 
 /// The config file to edit in place: the server may have rewritten the config
 /// as opencode.jsonc — prefer whichever exists, fall back to opencode.json.
-fn effective_config_file(env: &Env) -> Result<PathBuf, String> {
+pub(crate) fn effective_config_file(env: &Env) -> Result<PathBuf, String> {
     let dir = xdg_config_home(env)?.join("opencode");
     Ok(["opencode.jsonc", "opencode.json"]
         .iter()
@@ -1869,7 +1869,7 @@ fn ssh_config_path(env: &Env) -> Option<PathBuf> {
 /// Kill and respawn a running sidecar on its stable port. The lifecycle lock
 /// covers the complete state transition, and URL is cleared before spawning so
 /// a failed restart can never leave a stale "running" marker behind.
-fn restart_sidecar_if_running(env: &Env) -> Result<Option<String>, String> {
+pub(crate) fn restart_sidecar_if_running(env: &Env) -> Result<Option<String>, String> {
     let mut lifecycle = env.runtime().lifecycle.lock().unwrap();
     let Some(child) = lifecycle.child.take() else {
         lifecycle.url = None;

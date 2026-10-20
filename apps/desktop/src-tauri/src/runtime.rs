@@ -185,6 +185,27 @@ pub fn install_skill_markdown(app: AppHandle, text: String) -> Result<String, St
     osd_core::runtime::install_skill_markdown(&env_of(&app), text)
 }
 
+// ---- specialists (#144) -------------------------------------------------------
+
+#[tauri::command(async)]
+pub fn list_specialists(app: AppHandle) -> Result<Vec<osd_core::specialists::Specialist>, String> {
+    osd_core::specialists::list(&env_of(&app))
+}
+
+#[tauri::command(async)]
+pub fn save_specialist(
+    app: AppHandle,
+    specialist: osd_core::specialists::Specialist,
+    create: bool,
+) -> Result<(), String> {
+    osd_core::specialists::save(&env_of(&app), specialist, create)
+}
+
+#[tauri::command(async)]
+pub fn delete_specialist(app: AppHandle, id: String) -> Result<(), String> {
+    osd_core::specialists::delete(&env_of(&app), &id)
+}
+
 #[tauri::command(async)]
 pub fn workspace_skill_names(app: AppHandle) -> Result<Vec<String>, String> {
     osd_core::runtime::workspace_skill_names(&env_of(&app))

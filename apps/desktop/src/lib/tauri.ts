@@ -2,6 +2,7 @@
 // app still runs in `pnpm dev`; in the packaged desktop app they invoke Rust commands.
 
 import { isGatewayWeb, gatewayGet, gatewayPost } from "./webMode";
+import type { Specialist } from "./specialists";
 
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -821,6 +822,29 @@ export async function installSkillMarkdown(text: string): Promise<string> {
   if (!isTauri) throw new Error("not running in the desktop app");
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<string>("install_skill_markdown", { text });
+}
+
+/** The specialists the app manages (#144), sorted by id. Agent files the user
+ *  wrote by hand are not among them — the app never rewrites those. */
+export async function listSpecialists(): Promise<Specialist[]> {
+  if (!isTauri) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<Specialist[]>("list_specialists");
+}
+
+/** Create (`create`) or update a specialist. Restarts the sidecar — the runtime
+ *  builds its agents when it loads — so call it inside `reloadRuntimeConfig`. */
+export async function saveSpecialist(specialist: Specialist, create: boolean): Promise<void> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("save_specialist", { specialist, create });
+}
+
+/** Delete a specialist and the model/effort pinned to it. Restarts the sidecar. */
+export async function deleteSpecialist(id: string): Promise<void> {
+  if (!isTauri) throw new Error("not running in the desktop app");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("delete_specialist", { id });
 }
 
 /** Skill names already in the active workspace's `.opencode/skills/`. */
