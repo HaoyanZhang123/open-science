@@ -4,7 +4,7 @@
 // environment, and originating conversation, per version.
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::env::Env;
@@ -14,6 +14,16 @@ const STORE_DIR: &str = ".openscience";
 const STORE_FILE: &str = "provenance.jsonl";
 /// Per-record content cap: keeps the store bounded; larger writes are truncated.
 const CONTENT_CAP: usize = 100_000;
+
+/// Serializes in-process writes to provenance.jsonl from the desktop and gateway.
+static PROVENANCE_FILE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn lock_provenance_file() -> Result<MutexGuard<'static, ()>, String> {
+    PROVENANCE_FILE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "provenance file lock poisoned".to_string())
+}
 
 /// Serializes appends so two tool events can't interleave lines or race versions.
 #[derive(Default)]
@@ -493,6 +503,7 @@ pub fn append_record(
     run_id: Option<String>,
 ) -> Result<ProvenanceRecord, String> {
     let rel = normalize_rel(root, path)?;
+    let _file_guard = lock_provenance_file()?;
     let file = store_file(root);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("provenance dir failed: {e}"))?;
@@ -534,9 +545,8 @@ pub fn append_record(
 /// Append a `run`-produced version record for each of `paths` in ONE pass:
 /// reads the store once to compute per-path next versions, then writes all
 /// lines together. Used by runs.rs to link a run's outputs — a single read +
-/// write instead of one full store re-read per output, and the caller holds the
-/// same `ProvenanceState` lock as `record_provenance` so the two never race the
-/// version-then-append on `provenance.jsonl`.
+/// write instead of one full store re-read per output. A process-wide file lock
+/// serializes this with authored writes and other run links.
 pub fn link_run_outputs(
     root: &Path,
     paths: &[String],
@@ -549,13 +559,20 @@ pub fn link_run_outputs(
     if paths.is_empty() {
         return Ok(());
     }
+    let _file_guard = lock_provenance_file()?;
     let file = store_file(root);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("provenance dir failed: {e}"))?;
     }
-    // Read once; compute the current max version per path.
+    // Read once; compute current versions and skip links already committed for
+    // this run. If an earlier write partially succeeded, a retry completes only
+    // the missing paths instead of creating duplicate lineage entries.
     let mut max_ver: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut linked_paths = std::collections::HashSet::new();
     for r in read_all(&file) {
+        if r.run_id.as_deref() == Some(run_id.as_str()) {
+            linked_paths.insert(r.path.clone());
+        }
         let e = max_ver.entry(r.path).or_insert(0);
         *e = (*e).max(r.version);
     }
@@ -563,6 +580,10 @@ pub fn link_run_outputs(
     let mut buf = String::new();
     for p in paths {
         let rel = normalize_rel(root, p)?;
+        if linked_paths.contains(&rel) {
+            continue;
+        }
+        linked_paths.insert(rel.clone());
         let v = max_ver.entry(rel.clone()).or_insert(0);
         *v += 1;
         let record = ProvenanceRecord {
@@ -580,6 +601,9 @@ pub fn link_run_outputs(
         };
         buf.push_str(&serde_json::to_string(&record).map_err(|e| e.to_string())?);
         buf.push('\n');
+    }
+    if buf.is_empty() {
+        return Ok(());
     }
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new()
@@ -622,7 +646,9 @@ pub fn read_env_lockfile(env: &Env, hash: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_record, cap_content, normalize_rel, versions_for, CONTENT_CAP};
+    use super::{
+        append_record, cap_content, link_run_outputs, normalize_rel, versions_for, CONTENT_CAP,
+    };
 
     fn temp_root(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("ai4s-prov-{tag}-{}", std::process::id()));
@@ -682,6 +708,76 @@ mod tests {
         let pkgs = env.packages.as_ref().expect("packages recorded");
         assert_eq!((pkgs.count, pkgs.hash.as_str()), (2, "abc123"));
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn linking_run_outputs_twice_is_idempotent() {
+        let root = temp_root("run-idempotency");
+        link_run_outputs(
+            &root,
+            &["figure.svg".to_string()],
+            None,
+            None,
+            None,
+            None,
+            "run_retry".into(),
+        )
+        .unwrap();
+        link_run_outputs(
+            &root,
+            &[
+                "figure.svg".to_string(),
+                "table.csv".to_string(),
+                "table.csv".to_string(),
+            ],
+            None,
+            None,
+            None,
+            None,
+            "run_retry".into(),
+        )
+        .unwrap();
+
+        let versions = versions_for(&root, "figure.svg").unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].run_id.as_deref(), Some("run_retry"));
+        let retried = versions_for(&root, "table.csv").unwrap();
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].run_id.as_deref(), Some("run_retry"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_authored_appends_get_distinct_versions() {
+        let root = temp_root("concurrent-appends");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|i| {
+                let root = root.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    append_record(
+                        &root,
+                        "figure.svg",
+                        "write",
+                        Some(format!("session-{i}")),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                })
+            })
+            .collect();
+        let mut versions: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap().version).collect();
+        versions.sort_unstable();
+
+        assert_eq!(versions, (1..=8).collect::<Vec<_>>());
         let _ = std::fs::remove_dir_all(root);
     }
 
