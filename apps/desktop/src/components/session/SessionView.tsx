@@ -257,6 +257,11 @@ export function SessionView({
   const connected = status === "ready" || switching;
   const connecting = status === "connecting" && !switching;
   const displayStatus = switching ? "ready" : status;
+  // Error or offline: the only states the pane header speaks up for. A start
+  // in progress is said once, in the composer ("Starting runtime…"), and by
+  // the slow-start notice if it drags on — not by a badge and a spinner in
+  // every pane of every Screen.
+  const trouble = !connected && !connecting;
   const slowStart = useSlowStart(connecting);
 
   // A newly-created session (draft's first send) binds onto this leaf; the
@@ -667,7 +672,7 @@ export function SessionView({
             !(sidebarCollapsed && asTitlebar) && "h-8",
             // The Screen's only pane: the whole row waits for the pointer —
             // unless it hosts the sidebar button, or has trouble to report.
-            solo && !chromeAsTitlebar && connected && displayStatus === "ready" && HOVER_REVEAL,
+            solo && !chromeAsTitlebar && !trouble && HOVER_REVEAL,
           )}
         >
           {showSidebarExpand && (
@@ -861,16 +866,15 @@ export function SessionView({
             visible={visible}
           />
           </div>
-          {/* Trouble is never hidden: the green "ready" dot is noise per pane,
-              anything else shows whether or not the header is hovered. */}
-          {displayStatus !== "ready" && <ConnBadge status={displayStatus} />}
-          {!connected && (
+          {/* Trouble is never hidden: it shows whether or not the header is
+              hovered. Ready and starting say nothing here (see `trouble`). */}
+          {trouble && <ConnBadge status={displayStatus} />}
+          {trouble && (
             <button
               onClick={connect}
-              disabled={connecting}
-              className="flex items-center gap-1.5 rounded-input bg-accent px-2.5 py-0.5 text-xs font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-input bg-accent px-2.5 py-0.5 text-xs font-medium text-accent-fg hover:opacity-90"
             >
-              {connecting ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
+              <PlugZap size={13} />
               {t("live.connect")}
             </button>
           )}
@@ -1230,7 +1234,6 @@ function ConnBadge({ status }: { status: RuntimeStatus }) {
         className={cn(
           "h-1.5 w-1.5 rounded-full",
           status === "ready" ? "bg-ok" : status === "error" ? "bg-error" : "bg-muted",
-          status === "connecting" && "animate-pulse",
         )}
       />
       {status !== "ready" && t("live.connBadge.title", { status: t(`live.connBadge.status.${status}`) })}

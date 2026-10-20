@@ -24,6 +24,10 @@ describe("a session pane while the runtime is starting", () => {
     expect(await screen.findByPlaceholderText("Starting the runtime…")).toBeInTheDocument();
     expect(screen.queryByText("OpenCode runtime")).not.toBeInTheDocument();
     expect(screen.queryByText("Starting the local runtime…")).not.toBeInTheDocument();
+    // …and the pane header neither: no status badge, no spinning Connect
+    // button — with four panes open that was four of each.
+    expect(screen.queryByText(/OpenCode · /)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
   });
 
   it("explains the wait once it is long enough to notice", async () => {
@@ -42,5 +46,8 @@ describe("a session pane while the runtime is starting", () => {
     renderAt("/live");
     expect(await screen.findByText("OpenCode runtime")).toBeInTheDocument();
     expect(screen.queryByText("Starting the local runtime…")).not.toBeInTheDocument();
+    // Trouble shows in the header, with the way out.
+    expect(screen.getByText("OpenCode · offline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
   });
 });
