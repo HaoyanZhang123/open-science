@@ -506,7 +506,7 @@ export function NotebookEditor({
 
       {showHistory && (
         <div className="flex-1 overflow-y-auto bg-surface-2">
-          <ProvenancePanel path={path} language={language} />
+          <ProvenancePanel path={path} language={language} dir={sessionDir} />
         </div>
       )}
       <div ref={scrollRef} onScroll={onScroll} className={cn("flex-1 overflow-y-auto", showHistory && "hidden")}>

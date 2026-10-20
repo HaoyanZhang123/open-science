@@ -50,7 +50,16 @@ function longestBacktickRun(text: string): number {
  * that produced it, the tool, the model, and a link back to the originating
  * conversation. Data comes from `.openscience/provenance.jsonl` (P0-3).
  */
-export function ProvenancePanel({ path, language }: { path: string; language?: string }) {
+export function ProvenancePanel({
+  path,
+  language,
+  dir,
+}: {
+  path: string;
+  language?: string;
+  /** Web client: the viewed session's folder (see listProvenance). */
+  dir?: string;
+}) {
   const { t } = useTranslation(["inspector", "common"]);
   const [records, setRecords] = useState<ProvenanceRecord[] | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -69,7 +78,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
       return;
     }
     setLockfile({ hash, text: null });
-    void readEnvLockfile(hash).then((text) =>
+    void readEnvLockfile(hash, dir).then((text) =>
       setLockfile((cur) => (cur?.hash === hash ? { hash, text: text ?? "(lockfile unavailable)" } : cur)),
     );
   };
@@ -87,7 +96,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
   useEffect(() => {
     let cancelled = false;
     setRecords(null);
-    void listProvenance(path).then((r) => {
+    void listProvenance(path, dir).then((r) => {
       if (cancelled) return;
       setRecords([...r].reverse()); // newest first
       setExpanded(r.length > 0 ? r[r.length - 1].version : null);
@@ -102,7 +111,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, dir]);
 
   if (records === null) {
     return (

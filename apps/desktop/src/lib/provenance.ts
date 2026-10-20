@@ -5,7 +5,7 @@
 import type { ToolUpdatedEvent } from "@ai4s/sdk";
 import type { ProvenanceRecord } from "@ai4s/shared";
 import { isTauri, logDebug } from "./tauri";
-import { isGatewayWeb, gatewayGet } from "./webMode";
+import { isGatewayWeb, gatewayGet, gatewayPost } from "./webMode";
 import { deriveArtifact, parsePatchFiles } from "./artifacts";
 
 export interface ProvenanceInput {
@@ -81,14 +81,22 @@ export function provenanceInputsFromEvent(event: ToolUpdatedEvent): ProvenanceIn
   return single ? [single] : [];
 }
 
-/** Append a version record (desktop only). Recording must never break the chat flow. */
+/** Append a version record. Recording must never break the chat flow. `callId`
+ *  (the agent's tool call) makes a repeat of the same call a no-op. */
 export async function recordProvenance(
   input: ProvenanceInput,
   sessionId: string | undefined,
   model: string | null,
+  callId?: string,
 ): Promise<void> {
-  if (!isTauri) return;
+  if (!isTauri && !isGatewayWeb) return;
   try {
+    if (isGatewayWeb) {
+      // The gateway stores it in the session's own folder, so it needs the session.
+      if (!sessionId) return;
+      await gatewayPost<ProvenanceRecord>("/v1/provenance", { ...input, sessionId, model, callId });
+      return;
+    }
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("record_provenance", {
       path: input.path,
@@ -98,6 +106,7 @@ export async function recordProvenance(
       log: input.log,
       sessionId: sessionId ?? null,
       model: model ?? null,
+      callId: callId ?? null,
     });
     void logDebug(`provenance ✓ ${input.path}`);
   } catch (e) {
@@ -107,11 +116,18 @@ export async function recordProvenance(
   }
 }
 
-/** All recorded versions of one artifact, oldest first ([] in browser dev). */
-export async function listProvenance(path: string): Promise<ProvenanceRecord[]> {
+/** Web client: the folder the file is in, when it is not the host's active one. */
+function dirQuery(dir?: string): string {
+  return dir ? `&dir=${encodeURIComponent(dir)}` : "";
+}
+
+/** All recorded versions of one artifact, oldest first ([] in browser dev).
+ *  `dir` scopes the web client to the viewed session's folder (desktop ignores
+ *  it: its active workspace already follows the session). */
+export async function listProvenance(path: string, dir?: string): Promise<ProvenanceRecord[]> {
   if (isGatewayWeb) {
     try {
-      return (await gatewayGet<ProvenanceRecord[]>(`/v1/provenance?path=${encodeURIComponent(path)}`)) ?? [];
+      return (await gatewayGet<ProvenanceRecord[]>(`/v1/provenance?path=${encodeURIComponent(path)}${dirQuery(dir)}`)) ?? [];
     } catch {
       return [];
     }
@@ -126,10 +142,10 @@ export async function listProvenance(path: string): Promise<ProvenanceRecord[]> 
 }
 
 /** The captured `pip freeze` list for a package snapshot hash (null if unreadable). */
-export async function readEnvLockfile(hash: string): Promise<string | null> {
+export async function readEnvLockfile(hash: string, dir?: string): Promise<string | null> {
   if (isGatewayWeb) {
     try {
-      return await gatewayGet<string>(`/v1/provenance/lockfile?hash=${encodeURIComponent(hash)}`);
+      return await gatewayGet<string>(`/v1/provenance/lockfile?hash=${encodeURIComponent(hash)}${dirQuery(dir)}`);
     } catch {
       return null;
     }

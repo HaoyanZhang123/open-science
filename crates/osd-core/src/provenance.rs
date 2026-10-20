@@ -60,6 +60,10 @@ pub struct ProvenanceRecord {
     /// (not an authored write). Links the file to its reproducibility recipe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+    /// The agent tool call that wrote this version. Several clients (the desktop
+    /// and a browser on its gateway) observe the same call; it is recorded once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
 }
 
 /// The environment a version was produced in — enough to reproduce: which
@@ -489,6 +493,7 @@ fn cap_content(mut c: String) -> String {
 }
 
 /// Append one version record for `path`, assigning the next version number.
+/// A `call_id` already recorded for `path` returns that record instead.
 #[allow(clippy::too_many_arguments)]
 pub fn append_record(
     root: &Path,
@@ -501,6 +506,7 @@ pub fn append_record(
     log: Option<String>,
     env: Option<EnvInfo>,
     run_id: Option<String>,
+    call_id: Option<String>,
 ) -> Result<ProvenanceRecord, String> {
     let rel = normalize_rel(root, path)?;
     let _file_guard = lock_provenance_file()?;
@@ -508,13 +514,11 @@ pub fn append_record(
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("provenance dir failed: {e}"))?;
     }
-    let version = read_all(&file)
-        .iter()
-        .filter(|r| r.path == rel)
-        .map(|r| r.version)
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let existing: Vec<ProvenanceRecord> = read_all(&file).into_iter().filter(|r| r.path == rel).collect();
+    if let Some(done) = existing.iter().find(|r| call_id.is_some() && r.call_id == call_id) {
+        return Ok(done.clone());
+    }
+    let version = existing.iter().map(|r| r.version).max().unwrap_or(0) + 1;
     let record = ProvenanceRecord {
         path: rel,
         version,
@@ -530,6 +534,7 @@ pub fn append_record(
         log,
         env,
         run_id,
+        call_id,
     };
     let line = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     use std::io::Write;
@@ -598,6 +603,7 @@ pub fn link_run_outputs(
             log: log.clone(),
             env: env.clone(),
             run_id: Some(run_id.clone()),
+            call_id: None,
         };
         buf.push_str(&serde_json::to_string(&record).map_err(|e| e.to_string())?);
         buf.push('\n');
@@ -634,10 +640,15 @@ pub fn list_provenance(env: &Env, path: &str) -> Result<Vec<ProvenanceRecord>, S
 /// Read a content-addressed package lockfile (`.openscience/env/<hash>.txt`).
 /// `hash` is validated to hex so it cannot escape the env directory.
 pub fn read_env_lockfile(env: &Env, hash: &str) -> Result<String, String> {
+    read_lockfile(&workspace_dir(env)?, hash)
+}
+
+/// [`read_env_lockfile`] for an explicit workspace folder.
+pub fn read_lockfile(root: &Path, hash: &str) -> Result<String, String> {
     if hash.is_empty() || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("invalid lockfile id".into());
     }
-    let path = workspace_dir(env)?
+    let path = root
         .join(STORE_DIR)
         .join(ENV_DIR)
         .join(format!("{hash}.txt"));
@@ -660,11 +671,11 @@ mod tests {
     #[test]
     fn versions_increment_per_path_and_round_trip() {
         let root = temp_root("versions");
-        let r1 = append_record(&root, "fig/plot.py", "write", Some("ses_1".into()), Some("m".into()), Some("print(1)".into()), None, None, None, None).unwrap();
+        let r1 = append_record(&root, "fig/plot.py", "write", Some("ses_1".into()), Some("m".into()), Some("print(1)".into()), None, None, None, None, None).unwrap();
         // A file produced by a run carries its run_id (link to the recipe).
-        let r2 = append_record(&root, "fig/plot.py", "run", Some("ses_1".into()), None, None, None, None, None, Some("run_abc".into())).unwrap();
+        let r2 = append_record(&root, "fig/plot.py", "run", Some("ses_1".into()), None, None, None, None, None, Some("run_abc".into()), None).unwrap();
         // An edit records its diff for lineage (no full content).
-        let e = append_record(&root, "fig/plot.py", "edit", None, None, None, Some("@@ -1 +1 @@\n-print(1)\n+print(2)".into()), None, None, None).unwrap();
+        let e = append_record(&root, "fig/plot.py", "edit", None, None, None, Some("@@ -1 +1 @@\n-print(1)\n+print(2)".into()), None, None, None, None).unwrap();
         assert_eq!(e.version, 3);
         assert!(e.content.is_none());
         assert_eq!(e.diff.as_deref(), Some("@@ -1 +1 @@\n-print(1)\n+print(2)"));
@@ -684,6 +695,7 @@ mod tests {
                 packages: Some(super::PackageSnapshot { count: 2, hash: "abc123".into() }),
                 hardware: None,
             }),
+            None,
             None,
         )
         .unwrap();
@@ -708,6 +720,20 @@ mod tests {
         let pkgs = env.packages.as_ref().expect("packages recorded");
         assert_eq!((pkgs.count, pkgs.hash.as_str()), (2, "abc123"));
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn one_tool_call_is_one_version_however_many_clients_record_it() {
+        let root = temp_root("call-id");
+        let first = append_record(&root, "fig.py", "write", None, None, Some("a".into()), None, None, None, None, Some("call_1".into())).unwrap();
+        let again = append_record(&root, "fig.py", "write", None, None, Some("a".into()), None, None, None, None, Some("call_1".into())).unwrap();
+        let next = append_record(&root, "fig.py", "write", None, None, Some("b".into()), None, None, None, None, Some("call_2".into())).unwrap();
+        // Without a call id (a hand edit) every append is a new version.
+        let hand = append_record(&root, "fig.py", "manual-edit", None, None, Some("b".into()), None, None, None, None, None).unwrap();
+        let hand2 = append_record(&root, "fig.py", "manual-edit", None, None, Some("b".into()), None, None, None, None, None).unwrap();
+        assert_eq!((first.version, again.version, next.version, hand.version, hand2.version), (1, 1, 2, 3, 4));
+        assert_eq!(versions_for(&root, "fig.py").unwrap().len(), 4);
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -769,6 +795,7 @@ mod tests {
                         None,
                         None,
                         None,
+                        None,
                     )
                     .unwrap()
                 })
@@ -809,7 +836,7 @@ mod tests {
         let root = temp_root("norm");
         // Absolute path under the workspace → same key as the relative form.
         let abs = root.join("a/b.txt");
-        append_record(&root, abs.to_str().unwrap(), "write", None, None, None, None, None, None, None).unwrap();
+        append_record(&root, abs.to_str().unwrap(), "write", None, None, None, None, None, None, None, None).unwrap();
         let v = versions_for(&root, "a/b.txt").unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].path, "a/b.txt");
@@ -824,13 +851,13 @@ mod tests {
     #[test]
     fn corrupt_lines_are_skipped_and_content_is_capped() {
         let root = temp_root("corrupt");
-        append_record(&root, "x.py", "write", None, None, None, None, None, None, None).unwrap();
+        append_record(&root, "x.py", "write", None, None, None, None, None, None, None, None).unwrap();
         // A corrupt line must not lose the rest of the history.
         use std::io::Write;
         let file = root.join(".openscience/provenance.jsonl");
         let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
         writeln!(f, "not json").unwrap();
-        append_record(&root, "x.py", "write", None, None, None, None, None, None, None).unwrap();
+        append_record(&root, "x.py", "write", None, None, None, None, None, None, None, None).unwrap();
         let v = versions_for(&root, "x.py").unwrap();
         assert_eq!(v.iter().map(|r| r.version).collect::<Vec<_>>(), vec![1, 2]);
 

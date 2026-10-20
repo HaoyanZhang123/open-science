@@ -471,7 +471,7 @@ export function FilePreviewInspector({
         className="min-h-0 flex-1 overflow-auto bg-surface-2"
         hidden={collapsed}
       >
-        {showHistory && <ProvenancePanel path={data.path} language={data.language} />}
+        {showHistory && <ProvenancePanel path={data.path} language={data.language} dir={workspaceDirectory} />}
         {!showHistory && waitingForWorkspace && (
           <div className="flex items-center gap-2 p-4 text-sm text-muted">
             <Loader2 size={15} className="animate-spin" />{" "}

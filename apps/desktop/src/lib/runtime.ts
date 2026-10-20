@@ -3701,7 +3701,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           const key = `${event.callId}:${input.path}`;
           if (recordedProvenance.has(key)) continue;
           remember(recordedProvenance, key);
-          void recordProvenance(input, sid, get().defaultModel);
+          void recordProvenance(input, sid, get().defaultModel, event.callId);
         }
       }
       // A completed experiment execution (bash running code) becomes a run —

@@ -21,6 +21,7 @@ pub fn record_provenance(
     content: Option<String>,
     diff: Option<String>,
     log: Option<String>,
+    call_id: Option<String>,
 ) -> Result<ProvenanceRecord, String> {
     let _guard = state.0.lock().map_err(|_| "provenance lock poisoned")?;
     let root = crate::runtime::workspace_dir(&app)?;
@@ -34,7 +35,7 @@ pub fn record_provenance(
     // Writes are authored, not runs — no run_id here (runs.rs sets it for
     // files produced by executing code).
     let record = append_record(
-        &root, &path, &tool, session_id, model, content, diff, log, Some(env), None,
+        &root, &path, &tool, session_id, model, content, diff, log, Some(env), None, call_id,
     )?;
     drop(_guard);
     osd_core::git_snapshot::commit_best_effort(&root, &format!("Record {}", record.path));

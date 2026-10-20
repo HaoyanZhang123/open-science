@@ -453,6 +453,9 @@ export interface ProvenanceRecord {
   /** The run that produced this version, when it came from executing code
    *  (not an authored write). Links the file to its reproducibility recipe. */
   runId?: string;
+  /** The agent tool call that wrote this version — recorded once even when
+   *  several clients (desktop + a browser on its gateway) observe the call. */
+  callId?: string;
 }
 
 /** The environment a version was produced in — enough to reproduce. */

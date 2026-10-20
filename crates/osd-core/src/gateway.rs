@@ -761,16 +761,19 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
                 Err(e) => respond_json(stream, 404, &err_json(&e)),
             }
         }
+        ("POST", ["provenance"]) => record_provenance(stream, req, ctx),
+        // History lives in the folder the file is in: scoped like file reads,
+        // so a web client viewing another session's folder passes its `dir`.
         ("GET", ["provenance"]) => {
             let path = req.query_get("path").unwrap_or_default();
-            match crate::provenance::list_provenance(&ctx.env, &path) {
+            match fs_base(ctx, req).and_then(|root| crate::provenance::versions_for(&root, &path)) {
                 Ok(list) => respond_json(stream, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
                 Err(e) => respond_json(stream, 400, &err_json(&e)),
             }
         }
         ("GET", ["provenance", "lockfile"]) => {
             let hash = req.query_get("hash").unwrap_or_default();
-            match crate::provenance::read_env_lockfile(&ctx.env, &hash) {
+            match fs_base(ctx, req).and_then(|root| crate::provenance::read_lockfile(&root, &hash)) {
                 Ok(text) => respond(stream, 200, "text/plain; charset=utf-8", text.as_bytes()),
                 Err(e) => respond_json(stream, 404, &err_json(&e)),
             }
@@ -831,20 +834,9 @@ fn record_run(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         Ok(v) => v,
         Err(e) => return respond_json(stream, 400, &err_json(&e)),
     };
-    let response = match upstream_get(ctx, &format!("/session/{}", enc(&input.session_id)), &[]) {
-        Ok(r) if r.status().is_success() => r,
-        _ => return respond_json(stream, 404, &err_json("session not found")),
-    };
-    let session: serde_json::Value = match response.bytes().ok().and_then(|b| serde_json::from_slice(&b).ok()) {
-        Some(v) => v,
-        None => return respond_json(stream, 502, &err_json("invalid session reply")),
-    };
-    let Some(dir) = session.get("directory").and_then(|v| v.as_str()) else {
-        return respond_json(stream, 502, &err_json("session has no directory"));
-    };
-    let root = match session_dir(ctx, dir) {
-        Ok(v) => PathBuf::from(v),
-        Err(e) => return respond_json(stream, 403, &err_json(&e)),
+    let root = match session_root(ctx, &input.session_id) {
+        Ok(v) => v,
+        Err((status, e)) => return respond_json(stream, status, &err_json(&e)),
     };
     let env = crate::provenance::capture_env(
         &root, ctx.env.version().to_string(), Some(&input.command), None,
@@ -855,8 +847,78 @@ fn record_run(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         Some(input.started_at), Some(input.ended_at), &input.status,
         Some("local".into()), Some(input.session_id), input.model, Some(env),
     ) {
-        Ok(record) => respond_json(stream, 200, &serde_json::to_string(&record).unwrap_or_default()),
+        Ok(record) => {
+            crate::git_snapshot::commit_best_effort(&root, &format!("Record run {}", record.run_id));
+            respond_json(stream, 200, &serde_json::to_string(&record).unwrap_or_default())
+        }
         Err(e) => respond_json(stream, 500, &err_json(&e)),
+    }
+}
+
+/// The folder a session works in, as the sidecar reports it, validated like a
+/// caller-supplied session directory. Err carries the HTTP status to answer.
+fn session_root(ctx: &Ctx, session_id: &str) -> Result<PathBuf, (u16, String)> {
+    let response = match upstream_get(ctx, &format!("/session/{}", enc(session_id)), &[]) {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Err((404, "session not found".into())),
+    };
+    let session: serde_json::Value = response
+        .bytes()
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or((502, "invalid session reply".to_string()))?;
+    let dir = session
+        .get("directory")
+        .and_then(|v| v.as_str())
+        .ok_or((502, "session has no directory".to_string()))?;
+    session_dir(ctx, dir).map(PathBuf::from).map_err(|e| (403, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceRecordRequest {
+    path: String,
+    tool: String,
+    session_id: String,
+    model: Option<String>,
+    content: Option<String>,
+    diff: Option<String>,
+    log: Option<String>,
+    call_id: Option<String>,
+}
+
+fn parse_provenance_request(body: &[u8]) -> Result<ProvenanceRecordRequest, String> {
+    let input: ProvenanceRecordRequest =
+        serde_json::from_slice(body).map_err(|e| format!("bad provenance: {e}"))?;
+    if input.path.trim().is_empty() || input.tool.trim().is_empty() || input.session_id.trim().is_empty() {
+        return Err("provenance needs a path, tool and sessionId".into());
+    }
+    Ok(input)
+}
+
+/// Record an authored write (the agent's write/edit tool) — the web twin of the
+/// desktop's `record_provenance`, stored in the session's own folder.
+fn record_provenance(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    let input = match parse_provenance_request(&req.body) {
+        Ok(v) => v,
+        Err(e) => return respond_json(stream, 400, &err_json(&e)),
+    };
+    let root = match session_root(ctx, &input.session_id) {
+        Ok(v) => v,
+        Err((status, e)) => return respond_json(stream, status, &err_json(&e)),
+    };
+    // An authored write, not a run — no command interpreter to introspect.
+    let env = crate::provenance::capture_env(&root, ctx.env.version().to_string(), None, None);
+    match crate::provenance::append_record(
+        &root, &input.path, &input.tool, Some(input.session_id), input.model,
+        input.content, input.diff, input.log, Some(env), None, input.call_id,
+    ) {
+        Ok(record) => {
+            crate::git_snapshot::commit_best_effort(&root, &format!("Record {}", record.path));
+            respond_json(stream, 200, &serde_json::to_string(&record).unwrap_or_default())
+        }
+        // Mostly a path outside the session folder — the caller's input.
+        Err(e) => respond_json(stream, 400, &err_json(&e)),
     }
 }
 
@@ -1078,7 +1140,8 @@ fn redact_config(body: &[u8]) -> Vec<u8> {
 /// Resolve which directory a file request is scoped to. A web client viewing a
 /// session that is NOT the host's active one passes that session's absolute
 /// `dir` (from its SessionMeta); we accept it only if it sits under the base
-/// workspace (so a client can't read arbitrary paths). Otherwise fall back to
+/// workspace, is the host's active one, or is a registered project (so a client
+/// can't read arbitrary paths). Otherwise fall back to
 /// the `root` scope (workspace = host active, base = the base folder).
 fn fs_base(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
     if let Some(dir) = req.query_get("dir").filter(|d| !d.is_empty()) {
@@ -1086,7 +1149,9 @@ fn fs_base(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
             .canonicalize()
             .map_err(|e| e.to_string())?;
         let canon = PathBuf::from(&dir).canonicalize().map_err(|_| "dir not found".to_string())?;
+        let active = workspace_dir(&ctx.env).ok().and_then(|p| p.canonicalize().ok());
         if canon.starts_with(&base_root)
+            || active.as_ref() == Some(&canon)
             || crate::project::is_registered_project_path(&ctx.env, &canon)
         {
             return Ok(canon);
@@ -1604,6 +1669,14 @@ pub fn regenerate_gateway_token(env: &Env, state: &GatewayState) -> Result<Gatew
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provenance_request_requires_a_path_tool_and_session() {
+        let ok = parse_provenance_request(br#"{"path":"fig.svg","tool":"write","sessionId":"ses_1","callId":"call_1","content":"<svg/>"}"#).unwrap();
+        assert_eq!(ok.call_id.as_deref(), Some("call_1"));
+        assert!(parse_provenance_request(br#"{"path":"fig.svg","tool":"write"}"#).is_err());
+        assert!(parse_provenance_request(br#"{"path":" ","tool":"write","sessionId":"ses_1"}"#).is_err());
+    }
 
     #[test]
     fn run_record_request_requires_a_session_and_bounded_execution() {
