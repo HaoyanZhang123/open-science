@@ -159,6 +159,7 @@
       "skillMissing": "已不再安装",
       "connectors": "连接器",
       "connectorsHint": "之后新增的连接器默认开启，可以在这里关闭。",
+      "connectorsLoading": "正在读取连接器…",
       "noConnectors": "还没有配置连接器，可在 设置 › 连接器 中添加。",
       "connectorCollision": "关闭 {{blocked}} 会连带关闭 {{other}}。请把两个都关掉，或保留 {{blocked}}。",
       "modelDefault": "默认模型",

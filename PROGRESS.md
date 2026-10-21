@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-20 22:55 · Opening a specialist no longer waits ~1 s on the Zen serving list (fetched from opencode.ai before the dialog showed): the editor opens at once with models from the page's loaded catalog, and connectors fill in as they arrive (blocks kept untouched until then). The Skills page stays put while a save/delete restarts the runtime instead of blinking to "disconnected"; Delete shows a spinner. Typing itself measured fine (WebKit, 15–25 ms incl. two frames).
+
 2026-10-20 19:05 · Skills page reworked: Specialists first, then skills and agents as a three-column card grid (skills fold to three rows with "Show all"), and every skill/agent card opens a detail view with its SKILL.md rendered and "Show in folder". Specialist avatars gain an icon picker (27 research icons + first letter) in a colored tile; the icon lives in a frontmatter comment line, since the runtime would pass an unknown key to the provider (verified it loads with empty options). vitest 1778, osd-core 261 green.
 
 2026-10-20 13:10 · Specialists: names in any script are accepted (`论文写作` is the agent id; verified the bundled runtime loads and delegates by CJK agent names), and the editor picks the model in place — saved to `agent.<id>.model` in the same restart (effort cleared only when the model changes) — instead of linking away to Settings, which threw the draft away. vitest 1775, osd-core 261 green.

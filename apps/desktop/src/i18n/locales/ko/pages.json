@@ -159,6 +159,7 @@
       "skillMissing": "더 이상 설치되어 있지 않음",
       "connectors": "커넥터",
       "connectorsHint": "나중에 추가한 커넥터는 여기서 끌 때까지 켜져 있습니다.",
+      "connectorsLoading": "커넥터를 불러오는 중…",
       "noConnectors": "설정된 커넥터가 없습니다. 설정 › 커넥터에서 추가하세요.",
       "connectorCollision": "{{blocked}}을(를) 끄면 {{other}}도 꺼집니다. 둘 다 끄거나 {{blocked}}을(를) 켜 두세요.",
       "modelDefault": "기본 모델",

@@ -159,6 +159,7 @@
       "skillMissing": "Ya no está instalada",
       "connectors": "Conectores",
       "connectorsHint": "Los conectores que añadas después estarán activados hasta que los desactives aquí.",
+      "connectorsLoading": "Leyendo conectores…",
       "noConnectors": "No hay conectores configurados. Añádelos en Ajustes › Conectores.",
       "connectorCollision": "Desactivar {{blocked}} también desactivaría {{other}}. Desactiva ambos o deja {{blocked}} activado.",
       "modelDefault": "Modelo predeterminado",

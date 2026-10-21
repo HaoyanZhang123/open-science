@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Bot, Check, Plus, Puzzle, Search, X } from "lucide-react";
-import type { McpServer, ProviderInfo } from "@ai4s/sdk";
+import type { McpServer } from "@ai4s/sdk";
 import { getClient, useRuntimeStore } from "@/lib/runtime";
 import { cn } from "@/lib/cn";
 import { isGatewayWeb } from "@/lib/webMode";
 import { deleteSpecialist, isTauri, listSpecialists, saveSpecialist } from "@/lib/tauri";
 import { toast } from "@/lib/toast";
-import { listProvidersWithAvailability } from "@/lib/zenModels";
 import type { Specialist } from "@/lib/specialists";
 import { SpecialistAvatar } from "@/components/specialists/SpecialistAvatar";
 import { SpecialistEditor } from "@/components/specialists/SpecialistEditor";
@@ -36,9 +35,13 @@ export function SkillsPage() {
   const agents = useRuntimeStore((s) => s.agents);
   const tools = useRuntimeStore((s) => s.tools);
   const status = useRuntimeStore((s) => s.status);
+  const switching = useRuntimeStore((s) => s.switching);
+  const providers = useRuntimeStore((s) => s.providers);
   const loadCatalog = useRuntimeStore((s) => s.loadCatalog);
   const detectTools = useRuntimeStore((s) => s.detectTools);
-  const connected = status === "ready";
+  // A config reload (saving or deleting a specialist) restarts the runtime;
+  // the page keeps showing what it had rather than blinking to "disconnected".
+  const connected = status === "ready" || switching;
 
   const [query, setQuery] = useState("");
   const [installing, setInstalling] = useState(false);
@@ -46,8 +49,7 @@ export function SkillsPage() {
   // path to them, so there they simply list as the subagents they are.
   const canEditSpecialists = isTauri && !isGatewayWeb;
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
-  const [connectors, setConnectors] = useState<McpServer[]>([]);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [connectors, setConnectors] = useState<McpServer[] | null>(null);
   const [editing, setEditing] = useState<Specialist | "new" | null>(null);
   const [viewing, setViewing] = useState<EntryDetailTarget | null>(null);
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -67,17 +69,18 @@ export function SkillsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openEditor = async (target: Specialist | "new") => {
-    // Connectors and models are read when the editor opens, not with the page:
-    // they are only needed there, and either may have changed in Settings since.
-    const client = getClient();
-    const [mcp, catalog] = await Promise.all([
-      client?.listMcpServers().catch(() => null),
-      client ? listProvidersWithAvailability(client).catch(() => null) : null,
-    ]);
-    setConnectors(mcp ?? []);
-    setProviders(catalog ?? []);
+  const openEditor = (target: Specialist | "new") => {
+    // The editor opens at once. Models come from the catalog the page already
+    // loaded; connectors are read now, since they may have changed in
+    // Settings, and fill in when they arrive.
     setEditing(target);
+    setConnectors(null);
+    void (async () => {
+      const mcp = await getClient()
+        ?.listMcpServers()
+        .catch(() => null);
+      setConnectors(mcp ?? []);
+    })();
   };
 
   const onSaveSpecialist = async (specialist: Specialist, create: boolean) => {
@@ -176,7 +179,7 @@ export function SkillsPage() {
                 hint={t("skills.specialists.hint")}
                 action={
                   <button
-                    onClick={() => void openEditor("new")}
+                    onClick={() => openEditor("new")}
                     className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-input border border-border px-2.5 text-[13px] text-text hover:bg-surface-2"
                   >
                     <Plus size={13} strokeWidth={1.5} />
@@ -186,7 +189,7 @@ export function SkillsPage() {
               >
                 {specialists.length === 0 ? (
                   <button
-                    onClick={() => void openEditor("new")}
+                    onClick={() => openEditor("new")}
                     className="w-full rounded-card border border-dashed border-border px-5 py-5 text-left hover:bg-surface-2/60"
                   >
                     <p className="text-[14px] text-text">{t("skills.specialists.emptyTitle")}</p>
@@ -197,7 +200,7 @@ export function SkillsPage() {
                 ) : (
                   <Grid>
                     {specialistRows.map((s) => (
-                      <SpecialistCard key={s.id} specialist={s} onOpen={() => void openEditor(s)} />
+                      <SpecialistCard key={s.id} specialist={s} onOpen={() => openEditor(s)} />
                     ))}
                   </Grid>
                 )}

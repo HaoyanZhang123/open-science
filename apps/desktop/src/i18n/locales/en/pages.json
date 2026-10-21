@@ -159,6 +159,7 @@
       "skillMissing": "Not installed any more",
       "connectors": "Connectors",
       "connectorsHint": "Connectors added later are on until you turn them off here.",
+      "connectorsLoading": "Reading connectors…",
       "noConnectors": "No connectors configured. Add them in Settings › Connectors.",
       "connectorCollision": "Turning off {{blocked}} would also turn off {{other}}. Turn both off, or keep {{blocked}} on.",
       "modelDefault": "Default model",

@@ -159,6 +159,7 @@
       "skillMissing": "インストールされていません",
       "connectors": "コネクタ",
       "connectorsHint": "後から追加したコネクタは、ここでオフにするまでオンです。",
+      "connectorsLoading": "コネクタを読み込み中…",
       "noConnectors": "コネクタが設定されていません。設定 › コネクタ で追加できます。",
       "connectorCollision": "{{blocked}} をオフにすると {{other}} もオフになります。両方オフにするか、{{blocked}} をオンのままにしてください。",
       "modelDefault": "デフォルトのモデル",

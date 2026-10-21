@@ -159,6 +159,7 @@
       "skillMissing": "Nicht mehr installiert",
       "connectors": "Konnektoren",
       "connectorsHint": "Später hinzugefügte Konnektoren sind an, bis du sie hier ausschaltest.",
+      "connectorsLoading": "Connectors werden gelesen…",
       "noConnectors": "Keine Connectoren eingerichtet. Unter Einstellungen › Connectoren hinzufügen.",
       "connectorCollision": "Wenn du {{blocked}} ausschaltest, wird auch {{other}} ausgeschaltet. Schalte beide aus oder lass {{blocked}} an.",
       "modelDefault": "Standardmodell",

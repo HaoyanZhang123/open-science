@@ -50,7 +50,8 @@ export function SpecialistEditor({
   /** Every agent name already in use, so a new id can be refused as typed. */
   takenIds: string[];
   skills: SkillInfo[];
-  connectors: McpServer[];
+  /** null while they are still being read: the editor opens without waiting. */
+  connectors: McpServer[] | null;
   /** The model catalog, for the model picker. */
   providers: ProviderInfo[];
   onSave: (specialist: Specialist, create: boolean) => Promise<void>;
@@ -86,7 +87,10 @@ export function SpecialistEditor({
           : null;
   const descriptionMissing = !description.trim();
 
-  const connectorPrefixes = useMemo(() => connectors.map((c) => connectorPrefix(c.name)), [connectors]);
+  const connectorPrefixes = useMemo(
+    () => (connectors ?? []).map((c) => connectorPrefix(c.name)),
+    [connectors],
+  );
   const collisions = connectorCollisions(
     blocked,
     connectorPrefixes.filter((p) => !blocked.includes(p)),
@@ -99,8 +103,9 @@ export function SpecialistEditor({
     icon,
     instructions: instructions.trim(),
     skills: skillScope,
-    // Only blocks for connectors that still exist: one removed since keeps no rule.
-    blockedConnectors: blocked.filter((p) => connectorPrefixes.includes(p)),
+    // Only blocks for connectors that still exist: one removed since keeps no
+    // rule. Until the list is in, every block stays as it was.
+    blockedConnectors: connectors ? blocked.filter((p) => connectorPrefixes.includes(p)) : blocked,
     model,
   };
   const dirty = creating
@@ -377,7 +382,9 @@ export function SpecialistEditor({
           <SkillScope skills={skills} scope={skillScope} onChange={setSkillScope} />
 
           <Field label={t("skills.specialists.connectors")} hint={t("skills.specialists.connectorsHint")}>
-            {connectors.length === 0 ? (
+            {connectors === null ? (
+              <p className="text-[13px] text-muted">{t("skills.specialists.connectorsLoading")}</p>
+            ) : connectors.length === 0 ? (
               <p className="text-[13px] text-muted">{t("skills.specialists.noConnectors")}</p>
             ) : (
               <ul className="divide-y divide-[var(--border-faint)] rounded-input border border-border">
@@ -426,8 +433,9 @@ export function SpecialistEditor({
               <button
                 onClick={() => setConfirm("delete")}
                 disabled={busy !== null}
-                className="rounded-input px-2.5 py-1.5 text-[13px] text-error hover:bg-error/10 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-input px-2.5 py-1.5 text-[13px] text-error hover:bg-error/10 disabled:opacity-40"
               >
+                {busy === "delete" && <Loader2 size={13} className="animate-spin" />}
                 {busy === "delete" ? t("skills.specialists.deleting") : t("skills.specialists.delete")}
               </button>
             )}

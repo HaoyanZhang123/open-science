@@ -31,14 +31,14 @@ const onSave = vi.fn(async (_s: Specialist, _create: boolean) => {});
 const onDelete = vi.fn(async (_id: string) => {});
 const onClose = vi.fn();
 
-function open(initial: Specialist | null = null) {
+function open(initial: Specialist | null = null, mcp: McpServer[] | null = connectors) {
   return render(
     <MemoryRouter>
       <SpecialistEditor
         initial={initial}
         takenIds={["build", "reviewer"]}
         skills={skills}
-        connectors={connectors}
+        connectors={mcp}
         providers={providers}
         onSave={onSave}
         onDelete={onDelete}
@@ -112,6 +112,18 @@ describe("SpecialistEditor", () => {
     open({ ...existing, model: "gone/old-model" });
     expect(screen.getByLabelText("Model")).toHaveValue("gone/old-model");
     expect(screen.getByRole("option", { name: "gone/old-model (not in the catalog)" })).toBeInTheDocument();
+  });
+
+  it("opens before connectors are read, keeping their blocks meanwhile", async () => {
+    const user = userEvent.setup();
+    open(existing, null);
+    expect(screen.getByText("Reading connectors…")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Instructions"), "!");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledWith(
+      { ...existing, instructions: "Be strict.!", blockedConnectors: ["arxiv"] },
+      false,
+    );
   });
 
   it("says a name is taken or unusable as it is typed, and refuses to save", async () => {

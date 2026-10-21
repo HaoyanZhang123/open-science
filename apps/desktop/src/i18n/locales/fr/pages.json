@@ -159,6 +159,7 @@
       "skillMissing": "N’est plus installé",
       "connectors": "Connecteurs",
       "connectorsHint": "Les connecteurs ajoutés plus tard sont activés jusqu’à ce que vous les désactiviez ici.",
+      "connectorsLoading": "Lecture des connecteurs…",
       "noConnectors": "Aucun connecteur configuré. Ajoutez-en dans Réglages › Connecteurs.",
       "connectorCollision": "Désactiver {{blocked}} désactiverait aussi {{other}}. Désactivez les deux, ou laissez {{blocked}} activé.",
       "modelDefault": "Modèle par défaut",
