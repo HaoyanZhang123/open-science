@@ -16,9 +16,10 @@ import {
   NATIVE_AGENTS,
   SPECIALIST_COLORS,
   specialistId,
+  specialistInitial,
   type Specialist,
 } from "@/lib/specialists";
-import { SpecialistAvatar } from "./SpecialistAvatar";
+import { SPECIALIST_ICONS, SpecialistAvatar } from "./SpecialistAvatar";
 
 /**
  * Create or edit one specialist (#144).
@@ -63,6 +64,7 @@ export function SpecialistEditor({
   const [name, setName] = useState(initial?.id ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [color, setColor] = useState<string | null>(initial?.color ?? null);
+  const [icon, setIcon] = useState<string | null>(initial?.icon ?? null);
   const [instructions, setInstructions] = useState(initial?.instructions ?? "");
   const [skillScope, setSkillScope] = useState<string[] | null>(initial?.skills ?? null);
   const [blocked, setBlocked] = useState<string[]>(initial?.blockedConnectors ?? []);
@@ -94,6 +96,7 @@ export function SpecialistEditor({
     id,
     description: description.trim(),
     color,
+    icon,
     instructions: instructions.trim(),
     skills: skillScope,
     // Only blocks for connectors that still exist: one removed since keeps no rule.
@@ -106,6 +109,7 @@ export function SpecialistEditor({
         description.trim() ||
         instructions.trim() ||
         color ||
+        icon ||
         skillScope ||
         blocked.length ||
         model,
@@ -201,46 +205,49 @@ export function SpecialistEditor({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-          {/* ---- Who it is ---- */}
-          <div className="flex items-center gap-3">
-            <SpecialistAvatar id={displayName} color={color} large />
-            <div className="min-w-0">
-              <div className="truncate text-[15px] text-text">{displayName}</div>
-              <div className="text-[12px] text-muted">{t("skills.specialists.kind")}</div>
-            </div>
+          {/* ---- Who it is: the avatar previews every choice below it ---- */}
+          <div className="flex items-start gap-4">
+            <SpecialistAvatar id={displayName} color={color} icon={icon} large />
+            {creating ? (
+              <div className="min-w-0 flex-1">
+                <label htmlFor="specialist-name" className="text-[13px] font-medium text-text">
+                  {t("skills.specialists.name")}
+                </label>
+                <input
+                  id="specialist-name"
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("skills.specialists.namePlaceholder")}
+                  aria-invalid={touched && idProblem !== null}
+                  className={inputCls("mt-1.5 w-full")}
+                />
+                <p
+                  // A taken or unusable name is said as it is typed; an empty one
+                  // only once Create was pressed.
+                  className={cn(
+                    "mt-1.5 text-[12px]",
+                    idProblem === "taken" || idProblem === "empty" || (touched && idProblem === "required")
+                      ? "text-error"
+                      : "text-muted",
+                  )}
+                >
+                  {idProblem === "taken"
+                    ? t("skills.specialists.idTaken", { id })
+                    : idProblem === "empty"
+                      ? t("skills.specialists.idEmpty")
+                      : idProblem === "required"
+                        ? t("skills.specialists.idHint")
+                        : t("skills.specialists.idPreview", { id })}
+                </p>
+              </div>
+            ) : (
+              <div className="min-w-0 flex-1 self-center">
+                <div className="truncate text-[17px] text-text">{displayName}</div>
+                <div className="mt-0.5 text-[12px] text-muted">{t("skills.specialists.kind")}</div>
+              </div>
+            )}
           </div>
-
-          {creating && (
-            <Field label={t("skills.specialists.name")} htmlFor="specialist-name">
-              <input
-                id="specialist-name"
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("skills.specialists.namePlaceholder")}
-                aria-invalid={touched && idProblem !== null}
-                className={inputCls("w-full")}
-              />
-              <p
-                // A taken or unusable name is said as it is typed; an empty one
-                // only once Create was pressed.
-                className={cn(
-                  "mt-1.5 text-[12px]",
-                  idProblem === "taken" || idProblem === "empty" || (touched && idProblem === "required")
-                    ? "text-error"
-                    : "text-muted",
-                )}
-              >
-                {idProblem === "taken"
-                  ? t("skills.specialists.idTaken", { id })
-                  : idProblem === "empty"
-                    ? t("skills.specialists.idEmpty")
-                    : idProblem === "required"
-                      ? t("skills.specialists.idHint")
-                      : t("skills.specialists.idPreview", { id })}
-              </p>
-            </Field>
-          )}
 
           <Field label={t("skills.specialists.color")}>
             <div
@@ -262,6 +269,34 @@ export function SpecialistEditor({
                   onSelect={() => setColor(c.hex)}
                   style={{ backgroundColor: c.hex }}
                 />
+              ))}
+            </div>
+          </Field>
+
+          <Field label={t("skills.specialists.icon")}>
+            <div
+              role="radiogroup"
+              aria-label={t("skills.specialists.icon")}
+              className="flex flex-wrap gap-1.5"
+            >
+              <IconChoice
+                label={t("skills.specialists.iconLetter")}
+                selected={icon === null}
+                color={color}
+                onSelect={() => setIcon(null)}
+              >
+                <span className="text-[14px] font-medium">{specialistInitial(displayName)}</span>
+              </IconChoice>
+              {SPECIALIST_ICONS.map(([key, Icon]) => (
+                <IconChoice
+                  key={key}
+                  label={key}
+                  selected={icon === key}
+                  color={color}
+                  onSelect={() => setIcon(key)}
+                >
+                  <Icon size={16} strokeWidth={1.75} />
+                </IconChoice>
               ))}
             </div>
           </Field>
@@ -458,6 +493,7 @@ function normalized(s: Specialist | null): Specialist | null {
     id: s.id,
     description: s.description.trim(),
     color: s.color ?? null,
+    icon: s.icon ?? null,
     instructions: s.instructions.trim(),
     skills: s.skills,
     blockedConnectors: s.blockedConnectors,
@@ -519,6 +555,45 @@ function Swatch({
       )}
     >
       <span className={cn("block h-5 w-5 rounded-full", className)} style={style} />
+    </button>
+  );
+}
+
+/** One icon in the picker. The chosen one takes the specialist's color, so
+ *  the grid previews the tile it will make. */
+function IconChoice({
+  label,
+  selected,
+  color,
+  onSelect,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  color: string | null;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={label}
+      title={label}
+      onClick={onSelect}
+      className={cn(
+        "flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors",
+        !selected && "text-muted hover:bg-surface-2 hover:text-text",
+        selected && !color && "bg-surface-2 text-text ring-1 ring-[var(--text)]",
+      )}
+      style={
+        selected && color
+          ? { color, backgroundColor: `${color}1F`, boxShadow: `inset 0 0 0 1.5px ${color}` }
+          : undefined
+      }
+    >
+      {children}
     </button>
   );
 }

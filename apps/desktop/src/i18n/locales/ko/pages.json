@@ -178,7 +178,18 @@
       "idEmpty": "이름에 글자나 숫자가 하나 이상 있어야 합니다. 이름이 ID가 됩니다.",
       "model": "모델",
       "modelDefaultNamed": "기본 모델 ({{model}})",
-      "modelUnlisted": "{{model}} (카탈로그에 없음)"
+      "modelUnlisted": "{{model}} (카탈로그에 없음)",
+      "icon": "아이콘",
+      "iconLetter": "첫 글자"
+    },
+    "showAll": "전체 {{count}}개 보기",
+    "showFewer": "접기",
+    "detail": {
+      "close": "닫기",
+      "loading": "SKILL.md를 읽는 중…",
+      "unreadable": "이 스킬의 파일을 읽을 수 없습니다.",
+      "empty": "이 SKILL.md에는 설명 외의 내용이 없습니다.",
+      "reveal": "폴더에서 보기"
     }
   },
   "notFound": {

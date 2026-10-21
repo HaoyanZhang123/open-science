@@ -178,7 +178,18 @@
       "idEmpty": "Le nom doit contenir au moins une lettre ou un chiffre : il devient l’identifiant.",
       "model": "Modèle",
       "modelDefaultNamed": "Modèle par défaut ({{model}})",
-      "modelUnlisted": "{{model}} (absent du catalogue)"
+      "modelUnlisted": "{{model}} (absent du catalogue)",
+      "icon": "Icône",
+      "iconLetter": "Initiale"
+    },
+    "showAll": "Tout afficher ({{count}})",
+    "showFewer": "Afficher moins",
+    "detail": {
+      "close": "Fermer",
+      "loading": "Lecture de SKILL.md…",
+      "unreadable": "Impossible de lire le fichier de cette compétence.",
+      "empty": "Ce SKILL.md ne contient rien d’autre que sa description.",
+      "reveal": "Afficher dans le dossier"
     }
   },
   "notFound": {

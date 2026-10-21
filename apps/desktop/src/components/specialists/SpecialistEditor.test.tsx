@@ -52,6 +52,7 @@ const existing: Specialist = {
   id: "stats-reviewer",
   description: "Reviews statistics",
   color: "#2563EB",
+  icon: null,
   instructions: "Be strict.",
   skills: ["r-stats"],
   blockedConnectors: ["arxiv"],
@@ -77,6 +78,7 @@ describe("SpecialistEditor", () => {
         id: "stats-reviewer",
         description: "Reviews statistics",
         color: null,
+        icon: null,
         instructions: "",
         skills: null,
         blockedConnectors: [],
@@ -144,9 +146,15 @@ describe("SpecialistEditor", () => {
     await user.click(screen.getByRole("checkbox", { name: /python-stats/ }));
     await user.click(screen.getByRole("switch", { name: "arxiv" }));
     await user.click(screen.getByRole("radio", { name: "Violet" }));
+    await user.click(screen.getByRole("radio", { name: "pen-line" }));
     await user.click(screen.getByRole("button", { name: "Create specialist" }));
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ skills: ["python-stats"], blockedConnectors: ["arxiv"], color: "#7C3AED" }),
+      expect.objectContaining({
+        skills: ["python-stats"],
+        blockedConnectors: ["arxiv"],
+        color: "#7C3AED",
+        icon: "pen-line",
+      }),
       true,
     );
   });

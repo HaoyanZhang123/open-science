@@ -178,7 +178,18 @@
       "idEmpty": "Der Name braucht mindestens einen Buchstaben oder eine Ziffer – daraus wird die ID.",
       "model": "Modell",
       "modelDefaultNamed": "Standardmodell ({{model}})",
-      "modelUnlisted": "{{model}} (nicht im Katalog)"
+      "modelUnlisted": "{{model}} (nicht im Katalog)",
+      "icon": "Symbol",
+      "iconLetter": "Anfangsbuchstabe"
+    },
+    "showAll": "Alle {{count}} anzeigen",
+    "showFewer": "Weniger anzeigen",
+    "detail": {
+      "close": "Schließen",
+      "loading": "SKILL.md wird gelesen…",
+      "unreadable": "Die Datei dieses Skills konnte nicht gelesen werden.",
+      "empty": "Diese SKILL.md enthält nichts außer der Beschreibung.",
+      "reveal": "Im Ordner zeigen"
     }
   },
   "notFound": {
