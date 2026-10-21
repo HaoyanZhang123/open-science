@@ -277,7 +277,8 @@
         "default_one": "a exécuté une étape",
         "default_other": "a exécuté {{count}} étapes"
       },
-      "failedCount": "{{count}} en échec"
+      "callCount_one": "{{count}} appel d’outil",
+      "callCount_other": "{{count}} appels d’outils"
     },
     "process": {
       "thinking": "Analyse terminée",

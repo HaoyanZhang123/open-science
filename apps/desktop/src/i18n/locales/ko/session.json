@@ -270,7 +270,7 @@
         "fetched_other": "페이지 {{count}}개 가져옴",
         "default_other": "단계 {{count}}개 실행"
       },
-      "failedCount": "{{count}}개 실패"
+      "callCount_other": "도구 호출 {{count}}회"
     },
     "process": {
       "thinking": "분석 완료",

@@ -270,7 +270,7 @@
         "fetched_other": "{{count}} ページを取得",
         "default_other": "{{count}} ステップを実行"
       },
-      "failedCount": "{{count}} 件失敗"
+      "callCount_other": "ツール呼び出し {{count}} 回"
     },
     "process": {
       "thinking": "分析完了",

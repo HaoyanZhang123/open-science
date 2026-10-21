@@ -270,7 +270,7 @@
         "fetched_other": "获取了 {{count}} 个页面",
         "default_other": "执行了 {{count}} 个步骤"
       },
-      "failedCount": "{{count}} 个失败"
+      "callCount_other": "{{count}} 次工具调用"
     },
     "process": {
       "thinking": "已完成分析",

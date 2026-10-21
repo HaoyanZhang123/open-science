@@ -277,7 +277,8 @@
         "default_one": "ran a step",
         "default_other": "ran {{count}} steps"
       },
-      "failedCount": "{{count}} failed"
+      "callCount_one": "{{count}} tool call",
+      "callCount_other": "{{count}} tool calls"
     },
     "process": {
       "thinking": "Analysis completed",
