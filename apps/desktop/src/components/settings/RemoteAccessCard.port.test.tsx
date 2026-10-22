@@ -25,6 +25,7 @@ const status = (over: Partial<GatewayStatus> = {}): GatewayStatus => ({
   loopbackUrl: "http://127.0.0.1:4098",
   lanUrl: null,
   token: "tok",
+  terminal: false,
   ...over,
 });
 
@@ -41,7 +42,7 @@ describe("Settings → Remote Access, the gateway port", () => {
     await userEvent.type(screen.getByPlaceholderText("4098"), "9090");
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 
-    expect(setConfig).toHaveBeenCalledWith(true, false, "full", 9090);
+    expect(setConfig).toHaveBeenCalledWith(true, false, "full", 9090, false);
   });
 
   it("refuses a port outside 1-65535 without calling the backend", async () => {
@@ -63,7 +64,7 @@ describe("Settings → Remote Access, the gateway port", () => {
 
     await userEvent.selectOptions(screen.getByDisplayValue("Full access"), "read-only");
 
-    expect(setConfig).toHaveBeenCalledWith(true, false, "read-only", 9090);
+    expect(setConfig).toHaveBeenCalledWith(true, false, "read-only", 9090, false);
   });
 
   it("clears the pin only when the user asks it to", async () => {
@@ -73,6 +74,37 @@ describe("Settings → Remote Access, the gateway port", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Reset to default" }));
 
-    expect(setConfig).toHaveBeenCalledWith(true, false, "full", null);
+    expect(setConfig).toHaveBeenCalledWith(true, false, "full", null, false);
+  });
+});
+
+describe("Settings → Remote Access, terminals", () => {
+  it("turns terminals on only after the user confirms what that means", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(<RemoteAccessCard />);
+    const toggle = await screen.findByRole("switch", { name: "Allow terminals" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    expect(setConfig).not.toHaveBeenCalled();
+    await userEvent.click(toggle);
+    expect(setConfig).toHaveBeenCalledWith(true, false, "full", null, true);
+    confirm.mockRestore();
+  });
+
+  it("offers no terminal to a read-only token", async () => {
+    state.current = status({ mode: "read-only", terminal: true });
+    render(<RemoteAccessCard />);
+    const toggle = await screen.findByRole("switch", { name: "Allow terminals" });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("keeps the terminal choice through an unrelated change", async () => {
+    state.current = status({ terminal: true });
+    render(<RemoteAccessCard />);
+    await screen.findByRole("switch", { name: "Allow terminals" });
+    await userEvent.selectOptions(screen.getByDisplayValue("Full access"), "read-only");
+    expect(setConfig).toHaveBeenCalledWith(true, false, "read-only", null, true);
   });
 });

@@ -496,6 +496,7 @@
     "title": "Terminal",
     "exited": "[processus terminé]",
     "desktopOnly": "Le terminal nécessite l'app de bureau.",
+    "webOff": "Les terminaux sont désactivés pour l’accès web. Activez-les dans l’application de bureau : Réglages › Accès à distance.",
     "new": "Terminal",
     "menu": {
       "label": "Menu du terminal",

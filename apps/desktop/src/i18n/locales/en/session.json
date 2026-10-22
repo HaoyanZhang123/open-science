@@ -496,6 +496,7 @@
     "title": "Terminal",
     "exited": "[process exited]",
     "desktopOnly": "A terminal needs the desktop app.",
+    "webOff": "Terminals are off for web access. Turn them on in the desktop app: Settings › Remote access.",
     "new": "Terminal",
     "menu": {
       "label": "Terminal menu",

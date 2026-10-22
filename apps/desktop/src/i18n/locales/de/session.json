@@ -496,6 +496,7 @@
     "title": "Terminal",
     "exited": "[Prozess beendet]",
     "desktopOnly": "Ein Terminal braucht die Desktop-App.",
+    "webOff": "Terminals sind für den Webzugriff aus. Schalten Sie sie in der Desktop-App ein: Einstellungen › Fernzugriff.",
     "new": "Terminal",
     "menu": {
       "label": "Terminal-Menü",

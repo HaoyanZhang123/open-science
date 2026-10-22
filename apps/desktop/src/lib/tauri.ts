@@ -342,6 +342,8 @@ export interface GatewayStatus {
   lanUrl: string | null;
   /** The bearer token clients authenticate with (blank until first enabled). */
   token: string;
+  /** Web clients may open a shell here (full-access tokens only). */
+  terminal: boolean;
 }
 
 /** Current gateway status (desktop only; null in browser). */
@@ -437,11 +439,12 @@ export async function setGatewayConfig(
   enabled: boolean,
   lan: boolean,
   mode: GatewayMode,
-  port?: number | null,
+  port: number | null,
+  terminal: boolean,
 ): Promise<GatewayStatus | null> {
   if (!isTauri) return null;
   const { invoke } = await import("@tauri-apps/api/core");
-  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode, port: port ?? null });
+  return await invoke<GatewayStatus>("set_gateway_config", { enabled, lan, mode, port, terminal });
 }
 
 /** Rotate the bearer token (old clients must re-enter the new one). */

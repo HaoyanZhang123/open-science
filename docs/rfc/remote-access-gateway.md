@@ -130,6 +130,7 @@ bidirectional framing.)
 | **Files** ⭐ | `GET /v1/fs/list?path=&root=` | `list_dir` (`artifact_file.rs`) | non-recursive, sandboxed |
 | | `GET /v1/fs/read?path=&root=` | `read_artifact` | MIME + range |
 | Projects | `GET /v1/workspaces`, `POST /v1/workspaces/switch` | project.rs | which folder is active |
+| Terminals | `POST /v1/terminals/:id` `{cwd?, cols, rows}`, `POST …/input` `{data}`, `POST …/resize` `{cols, rows}`, `DELETE …`, `GET …/output` (SSE: `data:` JSON string per chunk, `event: exit`) | desktop PTYs (`src-tauri/src/terminal.rs`) | off unless Settings › Remote access › Allow terminals; full-access tokens only; a client reaches only shells it opened; all of them are killed on switch-off, read-only, token rotation or stop; `/v1/whoami` reports `terminal` |
 
 **Never over the wire:** API keys / secrets. They live in the OS keychain and
 must never appear in any endpoint, event, log, or export — regardless of client

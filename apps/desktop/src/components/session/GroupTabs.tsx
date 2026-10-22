@@ -26,6 +26,7 @@ import {
 } from "@/lib/layout";
 import { createMarkdown, createNotebook } from "@/lib/newFile";
 import { toast } from "@/lib/toast";
+import { isTauri } from "@/lib/tauri";
 import { startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
@@ -139,22 +140,28 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
             <FolderTree size={13} className="shrink-0 text-muted" />
             {t("nav:items.files")}
           </DropdownMenu.Item>
-          <DropdownMenu.Item
-            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
-            onSelect={() => void newFilePane(createNotebook, "notebook")}
-            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
-          >
-            <NotebookPen size={13} className="shrink-0 text-muted" />
-            {t("group.newNotebook")}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
-            onSelect={() => void newFilePane(createMarkdown, "editor")}
-            className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
-          >
-            <FileText size={13} className="shrink-0 text-muted" />
-            {t("group.newMarkdown")}
-          </DropdownMenu.Item>
+          {/* A new file is written to the desktop's disk, and a notebook runs on
+              its kernel — neither is reachable from a browser. */}
+          {isTauri && (
+            <>
+              <DropdownMenu.Item
+                // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+                onSelect={() => void newFilePane(createNotebook, "notebook")}
+                className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+              >
+                <NotebookPen size={13} className="shrink-0 text-muted" />
+                {t("group.newNotebook")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                // eslint-disable-next-line i18next/no-literal-string -- PaneContent kind, not UI copy
+                onSelect={() => void newFilePane(createMarkdown, "editor")}
+                className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+              >
+                <FileText size={13} className="shrink-0 text-muted" />
+                {t("group.newMarkdown")}
+              </DropdownMenu.Item>
+            </>
+          )}
           {agents.length > 0 && (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-faint" />

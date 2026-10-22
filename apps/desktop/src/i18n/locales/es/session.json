@@ -496,6 +496,7 @@
     "title": "Terminal",
     "exited": "[proceso terminado]",
     "desktopOnly": "El terminal requiere la app de escritorio.",
+    "webOff": "Las terminales están desactivadas para el acceso web. Actívalas en la app de escritorio: Ajustes › Acceso remoto.",
     "new": "Terminal",
     "menu": {
       "label": "Menú del terminal",

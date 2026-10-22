@@ -29,6 +29,7 @@ pub fn state_for(app: &AppHandle) -> GatewayState {
         let _ = emitter.emit("gateway:sessions-changed", ());
     });
     GatewayState::new(assets, Some(on_sessions_changed))
+        .with_terminals(Arc::new(crate::terminal::GatewayTerminals(app.clone())))
 }
 
 /// Bring the remote-access gateway back up if the user left it enabled.
@@ -62,8 +63,9 @@ pub fn set_gateway_config(
     lan: bool,
     mode: String,
     port: Option<u16>,
+    terminal: bool,
 ) -> Result<GatewayStatus, String> {
-    osd_core::gateway::set_gateway_config(&env_of(&app), state.inner(), enabled, lan, mode, port)
+    osd_core::gateway::set_gateway_config(&env_of(&app), state.inner(), enabled, lan, mode, port, terminal)
 }
 
 #[tauri::command(async)]

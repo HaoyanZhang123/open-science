@@ -75,12 +75,18 @@ export function RemoteAccessCard() {
   const mode: GatewayMode = status?.mode ?? "full";
 
   const configuredPort = status?.configuredPort ?? null;
+  const terminal = status?.terminal ?? false;
 
-  const setEnabled = (v: boolean) => apply(() => setGatewayConfig(v, lan, mode, configuredPort));
-  const setMode = (m: GatewayMode) => apply(() => setGatewayConfig(true, lan, m, configuredPort));
+  const setEnabled = (v: boolean) => apply(() => setGatewayConfig(v, lan, mode, configuredPort, terminal));
+  const setMode = (m: GatewayMode) => apply(() => setGatewayConfig(true, lan, m, configuredPort, terminal));
   const setLan = (v: boolean) => {
     if (v && !window.confirm(t("remote.lanWarn"))) return;
-    apply(() => setGatewayConfig(true, v, mode, configuredPort));
+    apply(() => setGatewayConfig(true, v, mode, configuredPort, terminal));
+  };
+
+  const setTerminal = (v: boolean) => {
+    if (v && !window.confirm(t("remote.terminalWarn"))) return;
+    apply(() => setGatewayConfig(true, lan, mode, configuredPort, v));
   };
 
   const applyPort = () => {
@@ -89,7 +95,7 @@ export function RemoteAccessCard() {
       toast.error(t("remote.portInvalid"));
       return;
     }
-    apply(() => setGatewayConfig(true, lan, mode, n));
+    apply(() => setGatewayConfig(true, lan, mode, n, terminal));
     setPortInput("");
   };
 
@@ -179,7 +185,7 @@ export function RemoteAccessCard() {
                     type="button"
                     className="rounded-input p-2 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:opacity-50"
                     disabled={busy}
-                    onClick={() => apply(() => setGatewayConfig(true, lan, mode, null))}
+                    onClick={() => apply(() => setGatewayConfig(true, lan, mode, null, terminal))}
                     title={t("remote.portReset")}
                   >
                     <RefreshCw size={14} />
@@ -202,6 +208,21 @@ export function RemoteAccessCard() {
                   <option value="full">{t("remote.modeFull")}</option>
                   <option value="read-only">{t("remote.modeReadonly")}</option>
                 </select>
+              }
+            />
+
+            {/* A shell is a step past driving the agent, so it is its own
+                yes — and a read-only token never gets one. */}
+            <Row
+              title={t("remote.terminal")}
+              hint={mode === "read-only" ? t("remote.terminalReadonlyHint") : t("remote.terminalHint")}
+              control={
+                <Switch
+                  checked={terminal && mode === "full"}
+                  onChange={setTerminal}
+                  label={t("remote.terminal")}
+                  disabled={busy || mode !== "full"}
+                />
               }
             />
 

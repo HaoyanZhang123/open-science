@@ -252,8 +252,8 @@ export function SessionView({
   const pinEphemeral = useLayoutStore((s) => s.pinEphemeral);
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  // Split buttons/drag only make sense where tiling works (desktop, not web).
-  const canSplit = !isGatewayWeb && !isMobile;
+  // Split buttons/drag only make sense where tiling works (not on a phone).
+  const canSplit = !isMobile;
 
   const connected = status === "ready" || switching;
   const connecting = status === "connecting" && !switching;
