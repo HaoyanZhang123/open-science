@@ -13,7 +13,23 @@ vi.mock("@/lib/tauri", () => ({
   setGatewayConfig: (...a: unknown[]) => setConfig(...(a as [])),
   regenerateGatewayToken: async () => state.current,
   acpServerScript: async () => null,
+  listWebAccounts: async () => [...accounts.names],
+  setWebAccount: (name: string, password: string) => accounts.set(name, password),
+  deleteWebAccount: (name: string) => accounts.remove(name),
 }));
+
+const accounts = vi.hoisted(() => {
+  const a = {
+    names: [] as string[],
+    set: vi.fn(async (name: string, _password: string) => {
+      if (!a.names.includes(name)) a.names.push(name);
+    }),
+    remove: vi.fn(async (name: string) => {
+      a.names = a.names.filter((n) => n !== name);
+    }),
+  };
+  return a;
+});
 
 const status = (over: Partial<GatewayStatus> = {}): GatewayStatus => ({
   enabled: true,
@@ -106,5 +122,41 @@ describe("Settings → Remote Access, terminals", () => {
     await screen.findByRole("switch", { name: "Allow terminals" });
     await userEvent.selectOptions(screen.getByDisplayValue("Full access"), "read-only");
     expect(setConfig).toHaveBeenCalledWith(true, false, "read-only", null, true);
+  });
+});
+
+describe("Settings → Remote Access, accounts", () => {
+  beforeEach(() => {
+    accounts.names = [];
+    accounts.set.mockClear();
+    accounts.remove.mockClear();
+  });
+
+  it("adds an account only with a long enough password", async () => {
+    render(<RemoteAccessCard />);
+    expect(await screen.findByText("No accounts yet.")).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Name" }), "dana");
+    await userEvent.type(screen.getByLabelText("Password"), "short");
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Password"), "-but-now-long");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(accounts.set).toHaveBeenCalledWith("dana", "short-but-now-long");
+    expect(await screen.findByText("dana")).toBeInTheDocument();
+  });
+
+  it("changes a password in place and deletes after confirming", async () => {
+    accounts.names = ["dana"];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<RemoteAccessCard />);
+    await screen.findByText("dana");
+    await userEvent.click(screen.getByRole("button", { name: "Change password" }));
+    await userEvent.type(screen.getByLabelText("New password"), "another long one");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(accounts.set).toHaveBeenCalledWith("dana", "another long one");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(accounts.remove).toHaveBeenCalledWith("dana");
+    expect(await screen.findByText("No accounts yet.")).toBeInTheDocument();
+    confirm.mockRestore();
   });
 });

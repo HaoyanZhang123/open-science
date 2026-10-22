@@ -454,6 +454,33 @@ export async function regenerateGatewayToken(): Promise<GatewayStatus | null> {
   return await invoke<GatewayStatus>("regenerate_gateway_token");
 }
 
+/** Web accounts: names a browser can sign in with (Settings › Remote access). */
+export async function listWebAccounts(): Promise<string[]> {
+  if (!isTauri) return [];
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<string[]>("web_accounts_list");
+}
+
+/** Create an account, or give it a new password — which signs it out everywhere. */
+export async function setWebAccount(name: string, password: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("web_account_set", { name, password });
+}
+
+export async function deleteWebAccount(name: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("web_account_delete", { name });
+}
+
+/** Hand the window's Screens to the gateway, for a web client to copy. */
+export async function publishDesktopLayout(layout: string): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("publish_desktop_layout", { layout });
+}
+
 /** uv download mirrors used only when provisioning Python tools (empty ⇒ default). */
 export interface MirrorSetting {
   /** PyPI index URL (UV_DEFAULT_INDEX). */

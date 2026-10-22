@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   FolderTree,
+  Monitor,
   NotebookPen,
   Pencil,
   Plus,
@@ -27,6 +28,8 @@ import {
 import { createMarkdown, createNotebook } from "@/lib/newFile";
 import { toast } from "@/lib/toast";
 import { isTauri } from "@/lib/tauri";
+import { isGatewayWeb } from "@/lib/webMode";
+import { fetchDesktopScreens } from "@/lib/layoutSync";
 import { startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
@@ -89,6 +92,20 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
     }
   };
 
+  /** Copy the desktop window's Screens in, as new Screens of this browser. */
+  const importDesktop = async () => {
+    setBusy(true);
+    try {
+      const added = useLayoutStore.getState().importScreens(await fetchDesktopScreens());
+      if (added) toast.success(t("group.importedDesktop", { count: added }));
+      else toast.error(t("group.importDesktopNone"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const run = async (agent: CliAgent) => {
     setBusy(true);
     selectCliAgent(agent);
@@ -140,6 +157,15 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
             <FolderTree size={13} className="shrink-0 text-muted" />
             {t("nav:items.files")}
           </DropdownMenu.Item>
+          {isGatewayWeb && (
+            <DropdownMenu.Item
+              onSelect={() => void importDesktop()}
+              className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+            >
+              <Monitor size={13} className="shrink-0 text-muted" />
+              {t("group.importDesktop")}
+            </DropdownMenu.Item>
+          )}
           {/* A new file is written to the desktop's disk, and a notebook runs on
               its kernel — neither is reachable from a browser. */}
           {isTauri && (

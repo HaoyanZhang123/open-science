@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./tauri", () => ({ isTauri: false }));
 vi.mock("./webMode", () => ({
@@ -23,6 +23,7 @@ function body(parts: string[]): ReadableStream<Uint8Array> {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => window.localStorage.setItem("os_terminal_client", "abcdefabcdef"));
 
 describe("readEvents", () => {
   it("joins frames split across reads, skips keepalives, and stops on exit", async () => {
@@ -43,15 +44,23 @@ describe("readEvents", () => {
 });
 
 describe("the web transport", () => {
+  it("names its shells per browser, so pane ids from other clients never collide", async () => {
+    window.localStorage.removeItem("os_terminal_client");
+    await terminalTransport.write("p3", "x");
+    const id = window.localStorage.getItem("os_terminal_client")!;
+    expect(id).toMatch(/^[a-z0-9]{12}$/);
+    expect(gatewayPost).toHaveBeenLastCalledWith(`/v1/terminals/w${id}-p3/input`, { data: "x" });
+  });
+
   it("talks to /v1/terminals with the bearer token, never a token in the URL", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await terminalTransport.open("leaf-1", "/work", 80, 24);
     await terminalTransport.write("leaf-1", "ls\n");
     await terminalTransport.close("leaf-1");
-    expect(gatewayPost).toHaveBeenCalledWith("/v1/terminals/leaf-1", { cwd: "/work", cols: 80, rows: 24 });
-    expect(gatewayPost).toHaveBeenCalledWith("/v1/terminals/leaf-1/input", { data: "ls\n" });
-    expect(fetchMock).toHaveBeenCalledWith("http://gw/v1/terminals/leaf-1", {
+    expect(gatewayPost).toHaveBeenCalledWith("/v1/terminals/wabcdefabcdef-leaf-1", { cwd: "/work", cols: 80, rows: 24 });
+    expect(gatewayPost).toHaveBeenCalledWith("/v1/terminals/wabcdefabcdef-leaf-1/input", { data: "ls\n" });
+    expect(fetchMock).toHaveBeenCalledWith("http://gw/v1/terminals/wabcdefabcdef-leaf-1", {
       method: "DELETE",
       headers: { Authorization: "Bearer tok" },
     });

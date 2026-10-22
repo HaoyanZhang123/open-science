@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, Eye, EyeOff, Globe, Laptop, Plug, RefreshCw, ShieldAlert } from "lucide-react";
 import { Row, Section, Switch } from "@/components/settings/Section";
-import { chipCls } from "@/components/settings/inputCls";
+import { buttonCls, chipCls, inputCls } from "@/components/settings/inputCls";
+import { WebAccounts } from "@/components/settings/WebAccounts";
 import { toast } from "@/lib/toast";
 import {
   acpServerScript,
@@ -170,11 +171,11 @@ export function RemoteAccessCard() {
                   onChange={(e) => setPortInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && applyPort()}
                   disabled={busy}
-                  className={chipCls("w-24 shrink-0")}
+                  className={inputCls("h-8 w-24 shrink-0")}
                 />
                 <button
                   type="button"
-                  className={chipCls("shrink-0")}
+                  className={buttonCls()}
                   disabled={busy || portInput.trim() === ""}
                   onClick={applyPort}
                 >
@@ -225,6 +226,11 @@ export function RemoteAccessCard() {
                 />
               }
             />
+
+            {/* Accounts first: the way a person signs in from a browser. */}
+            <Row title={t("remote.accounts")} hint={t("remote.accountsHint")}>
+              <WebAccounts />
+            </Row>
 
             {/* Bearer token. */}
             <Row title={t("remote.token")} hint={t("remote.tokenHint")}>

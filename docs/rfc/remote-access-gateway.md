@@ -130,6 +130,8 @@ bidirectional framing.)
 | **Files** ⭐ | `GET /v1/fs/list?path=&root=` | `list_dir` (`artifact_file.rs`) | non-recursive, sandboxed |
 | | `GET /v1/fs/read?path=&root=` | `read_artifact` | MIME + range |
 | Projects | `GET /v1/workspaces`, `POST /v1/workspaces/switch` | project.rs | which folder is active |
+| Accounts | `POST /v1/login` `{name, password}` → `{token, user, expires}` (unauthenticated; 401 wrong, 429 `{retryAfter}` after 5 misses), `POST /v1/logout`, `GET\|PUT /v1/me/layout` | `osd-core/src/web_accounts.rs` | made in Settings › Remote access or `osd account`; argon2 hashes, sha-256 of session tokens, 30-day sessions; a session is accepted wherever the token is (Bearer / Basic / `?token` / `?auth_token`) with the same rights; `/v1/whoami` reports `user`; a new password or deletion signs the account out everywhere; the layout write is allowed under read-only |
+| | `GET /v1/layout/desktop` | `publish_desktop_layout` | the desktop window's Screens, for "Open the desktop's Screens" |
 | Terminals | `POST /v1/terminals/:id` `{cwd?, cols, rows}`, `POST …/input` `{data}`, `POST …/resize` `{cols, rows}`, `DELETE …`, `GET …/output` (SSE: `data:` JSON string per chunk, `event: exit`) | desktop PTYs (`src-tauri/src/terminal.rs`) | off unless Settings › Remote access › Allow terminals; full-access tokens only; a client reaches only shells it opened; all of them are killed on switch-off, read-only, token rotation or stop; `/v1/whoami` reports `terminal` |
 
 **Never over the wire:** API keys / secrets. They live in the OS keychain and

@@ -437,6 +437,8 @@ interface RuntimeState {
   webReadOnly: boolean;
   /** Web client: the desktop lets this token open terminals. */
   webTerminal: boolean;
+  /** Web client: the account signed in, or null when it used the bare token. */
+  webUser: string | null;
   /** Folder a pending draft's session must be created in, keyed by draft slot
    *  (`DRAFT_KEY`, or a pane's `draft:<leafId>`). Set when the user picks one —
    *  "+ new session in project X", or the folder picker. A draft with no entry
@@ -2686,6 +2688,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   webWorkspace: null,
   webReadOnly: false,
   webTerminal: false,
+  webUser: null,
   draftWorkspaces: {},
   movingSessions: {},
   switching: false,
@@ -3023,23 +3026,32 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       directory = null;
       let readOnly = false;
       let terminal = false;
+      let user: string | null = null;
       try {
         const r = await fetch(`${baseUrl}/v1/whoami`, {
           headers: password ? { Authorization: `Bearer ${password}` } : {},
         });
         if (r.ok) {
-          const who = (await r.json()) as { directory?: string; mode?: string; terminal?: boolean };
+          const who = (await r.json()) as {
+            directory?: string;
+            mode?: string;
+            terminal?: boolean;
+            user?: string | null;
+          };
           // The folder this browser opened, if any; otherwise the host's.
           directory = get().webWorkspace ?? who.directory ?? null;
           // A read-only token 403s every write — surface that in the UI
           // instead of letting "New session" / the composer fail opaquely.
           readOnly = who.mode === "read-only";
           terminal = who.terminal === true;
+          user = who.user ?? null;
         }
       } catch {
         /* whoami is best-effort; the client still connects */
       }
-      set({ serverUrl: baseUrl, workspace: directory, webReadOnly: readOnly, webTerminal: terminal });
+      set({ serverUrl: baseUrl, workspace: directory, webReadOnly: readOnly, webTerminal: terminal, webUser: user });
+      // An account's Screens live on the desktop, the same at every address.
+      if (user) void import("./layoutSync").then(({ adoptAccountLayout }) => adoptAccountLayout());
     } else {
       // Scope skill discovery to the sidecar's workspace (null in browser dev).
       directory = await workspacePath();

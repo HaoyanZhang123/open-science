@@ -57,7 +57,31 @@ const desktop: TerminalTransport = {
   },
 };
 
-const path = (id: string, rest = "") => `/v1/terminals/${encodeURIComponent(id)}${rest}`;
+/** This browser's own name for its shells. Pane ids are `p1`, `p2`… in every
+ *  client, so a bare pane id would collide with a desktop terminal (which the
+ *  gateway refuses) or — worse — with another browser's, which would then type
+ *  into this one's shell. One random id per browser, kept so a reload finds
+ *  its shells again. */
+function clientId(): string {
+  const KEY = "os_terminal_client";
+  try {
+    const saved = window.localStorage.getItem(KEY);
+    if (saved && /^[a-z0-9]{12}$/.test(saved)) return saved;
+    const fresh = randomId();
+    window.localStorage.setItem(KEY, fresh);
+    return fresh;
+  } catch {
+    return (sessionClient ??= randomId());
+  }
+}
+let sessionClient: string | undefined;
+
+function randomId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+}
+
+const path = (id: string, rest = "") => `/v1/terminals/w${clientId()}-${encodeURIComponent(id)}${rest}`;
 const authHeader = (): Record<string, string> => {
   const token = gatewayToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

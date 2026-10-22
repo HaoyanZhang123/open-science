@@ -75,3 +75,28 @@ pub fn regenerate_gateway_token(
 ) -> Result<GatewayStatus, String> {
     osd_core::gateway::regenerate_gateway_token(&env_of(&app), state.inner())
 }
+
+/// Web accounts (Settings › Remote access): names only — hashes never leave
+/// the core.
+#[tauri::command]
+pub fn web_accounts_list(app: AppHandle) -> Result<Vec<String>, String> {
+    osd_core::web_accounts::list(&env_of(&app))
+}
+
+/// Create an account, or set a new password (which signs it out everywhere).
+#[tauri::command(async)]
+pub fn web_account_set(app: AppHandle, name: String, password: String) -> Result<(), String> {
+    osd_core::web_accounts::set_password(&env_of(&app), &name, &password)
+}
+
+#[tauri::command]
+pub fn web_account_delete(app: AppHandle, name: String) -> Result<(), String> {
+    osd_core::web_accounts::delete(&env_of(&app), &name)
+}
+
+/// The window's Screens, so a web client can copy them ("open the desktop's
+/// Screens"). Written on every layout change, debounced by the caller.
+#[tauri::command]
+pub fn publish_desktop_layout(app: AppHandle, layout: String) -> Result<(), String> {
+    osd_core::web_accounts::write_desktop_layout(&env_of(&app), &layout)
+}

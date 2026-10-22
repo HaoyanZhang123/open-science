@@ -589,17 +589,26 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         }
     }
 
+    // Signing in is how a web account gets its credential, so it is the one
+    // write that comes before the gate.
+    if req.method == "POST" && path == "/v1/login" {
+        return login_route(stream, req, ctx);
+    }
+
     // ---- /v1 contract API (CLI / curl / the SPA's file browser) ----
     if let Some(rest) = path.strip_prefix("/v1/") {
-        if !authed(req, &ctx.token()) {
+        let Some(who) = principal(req, ctx) else {
             respond_json(stream, 401, "{\"error\":\"unauthorized\"}");
             return;
-        }
-        if ctx.read_only() && req.method != "GET" {
+        };
+        // Read-only stops changes to the workspace, not an account keeping
+        // its own Screens or signing itself out.
+        let own_state = (req.method == "PUT" && rest == "me/layout") || (req.method == "POST" && rest == "logout");
+        if ctx.read_only() && req.method != "GET" && !own_state {
             respond_json(stream, 403, "{\"error\":\"token is read-only\"}");
             return;
         }
-        v1(stream, req, ctx, rest);
+        v1(stream, req, ctx, rest, &who);
         return;
     }
 
@@ -631,7 +640,7 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     }
 
     // ---- transparent OpenCode proxy (the SPA's OpenCodeClient talks here) ----
-    if !authed(req, &ctx.token()) {
+    if principal(req, ctx).is_none() {
         respond_json(stream, 401, "{\"error\":\"unauthorized\"}");
         return;
     }
@@ -667,15 +676,20 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
 
 /// The versioned contract surface (CLI / curl / the SPA's file browser).
 /// `rest` is the path after `/v1/`.
-fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
+fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Principal) {
     let segs: Vec<&str> = rest.trim_matches('/').split('/').collect();
     match (req.method.as_str(), segs.as_slice()) {
         ("GET", ["whoami"]) => {
             let mode = if ctx.read_only() { "read-only" } else { "full" };
+            let user = match who {
+                Principal::User { name, .. } => Some(name.as_str()),
+                Principal::Token => None,
+            };
             let payload = serde_json::json!({
                 "mode": mode,
                 "directory": ws_dir(ctx),
                 "terminal": ctx.terminals().is_some(),
+                "user": user,
             });
             respond_json(stream, 200, &payload.to_string());
         }
@@ -847,6 +861,35 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str) {
         // gets the identical list the desktop picker filters by. Carries no
         // credentials in either direction.
         (_, ["terminals", id, ..]) => terminal_route(stream, req, ctx, id, &segs[2..]),
+        ("POST", ["logout"]) => match who {
+            Principal::User { session, .. } => match crate::web_accounts::logout(&ctx.env, session) {
+                Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
+                Err(e) => respond_json(stream, 500, &err_json(&e)),
+            },
+            Principal::Token => respond_json(stream, 400, "{\"error\":\"not signed in with an account\"}"),
+        },
+        ("GET", ["me", "layout"]) => match who {
+            Principal::User { name, .. } => match crate::web_accounts::read_layout(&ctx.env, name) {
+                Some(json) => respond_json(stream, 200, &json),
+                None => respond_json(stream, 200, "null"),
+            },
+            Principal::Token => respond_json(stream, 400, "{\"error\":\"not signed in with an account\"}"),
+        },
+        ("PUT", ["me", "layout"]) => match who {
+            Principal::User { name, .. } => {
+                let body = String::from_utf8_lossy(&req.body);
+                match crate::web_accounts::write_layout(&ctx.env, name, &body) {
+                    Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
+                    Err(e) => respond_json(stream, 400, &err_json(&e)),
+                }
+            }
+            Principal::Token => respond_json(stream, 400, "{\"error\":\"not signed in with an account\"}"),
+        },
+        // The desktop window's Screens, for "open the desktop's Screens" on the web.
+        ("GET", ["layout", "desktop"]) => match crate::web_accounts::read_desktop_layout(&ctx.env) {
+            Some(json) => respond_json(stream, 200, &json),
+            None => respond_json(stream, 200, "null"),
+        },
         ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
             Ok(ids) => {
                 let payload = serde_json::json!({ "models": ids });
@@ -1309,6 +1352,35 @@ fn send_file(stream: &mut TcpStream, full: &Path) {
     }
 }
 
+// ---- web accounts -------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct LoginBody {
+    name: String,
+    password: String,
+}
+
+fn login_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    use crate::web_accounts::{login, LoginError};
+    let Ok(body) = serde_json::from_slice::<LoginBody>(&req.body) else {
+        return respond_json(stream, 400, "{\"error\":\"bad body\"}");
+    };
+    match login(&ctx.env, &body.name, &body.password) {
+        Ok((token, expires, user)) => respond_json(
+            stream,
+            200,
+            &serde_json::json!({ "token": token, "user": user, "expires": expires }).to_string(),
+        ),
+        Err(LoginError::Invalid) => respond_json(stream, 401, "{\"error\":\"invalid\"}"),
+        Err(LoginError::Locked(left)) => respond_json(
+            stream,
+            429,
+            &serde_json::json!({ "error": "locked", "retryAfter": left.as_secs().max(1) }).to_string(),
+        ),
+        Err(LoginError::Other(e)) => respond_json(stream, 500, &err_json(&e)),
+    }
+}
+
 // ---- terminals --------------------------------------------------------------
 
 /// A pane id from the web client: short, and nothing a path or a shell could
@@ -1581,6 +1653,65 @@ fn authed(req: &Request, token: &str) -> bool {
         }
     }
     false
+}
+
+/// Who a request is: the gateway token, or a signed-in web account (see
+/// `web_accounts`). Both carry the same rights; the account also has a layout.
+enum Principal {
+    Token,
+    User { name: String, session: String },
+}
+
+fn principal(req: &Request, ctx: &Ctx) -> Option<Principal> {
+    if authed(req, &ctx.token()) {
+        return Some(Principal::Token);
+    }
+    // A session token arrives every way the gateway token does, since the SPA
+    // simply uses it in the token's place.
+    let mut presented: Vec<String> = Vec::new();
+    if let Some(h) = req.header("authorization") {
+        if let Some(t) = h.strip_prefix("Bearer ") {
+            presented.push(t.trim().to_string());
+        }
+        if let Some(b) = h.strip_prefix("Basic ") {
+            presented.extend(basic_password(b.trim()));
+        }
+    }
+    presented.extend(req.query_get("token"));
+    presented.extend(req.query_get("auth_token").and_then(|b| basic_password(&b)));
+    presented.into_iter().find_map(|session| {
+        crate::web_accounts::session_user(&ctx.env, &session).map(|name| Principal::User { name, session })
+    })
+}
+
+/// The password half of a Basic credential `base64("opencode:<password>")`.
+fn basic_password(b64: &str) -> Option<String> {
+    let raw = base64_decode(b64)?;
+    String::from_utf8(raw).ok()?.strip_prefix("opencode:").map(str::to_string)
+}
+
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(input.len() / 4 * 3);
+    let mut acc = 0u32;
+    let mut bits = 0;
+    for c in input.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            _ => return None,
+        };
+        acc = (acc << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
 }
 
 /// The `Authorization: Basic` value OpenCodeClient sends when the gateway token
@@ -2254,6 +2385,62 @@ mod tests {
         stop(&env, &state);
         assert_eq!(*fake.closed.lock().unwrap(), vec!["web1".to_string(), "web2".to_string()]);
         assert!(fake.live.lock().unwrap().contains_key("desktop-pane"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `call`, with a chosen credential header (or none).
+    fn call_as(port: u16, method: &str, path: &str, auth: Option<&str>, body: &str) -> (u16, String) {
+        let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let auth = auth.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
+        let req = format!(
+            "{method} {path} HTTP/1.1\r\nHost: x\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        c.write_all(req.as_bytes()).unwrap();
+        let mut buf = String::new();
+        c.read_to_string(&mut buf).unwrap();
+        let status = buf[9..12].parse().unwrap();
+        let body = buf.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default();
+        (status, body)
+    }
+
+    #[test]
+    fn a_web_account_signs_in_and_keeps_its_own_layout() {
+        let (env, dir) = env_with_recorded_port("accounts", None);
+        crate::web_accounts::set_password(&env, "dana", "a long password").unwrap();
+        let state = GatewayState::default();
+        let p = read_persisted(&env);
+        let port = start_at(&env, &state, &p, None).unwrap();
+
+        let bad = call_as(port, "POST", "/v1/login", None, r#"{"name":"dana","password":"nope nope"}"#);
+        assert_eq!(bad.0, 401);
+        let (status, body) = call_as(port, "POST", "/v1/login", None, r#"{"name":"Dana","password":"a long password"}"#);
+        assert_eq!(status, 200, "{body}");
+        let session = serde_json::from_str::<serde_json::Value>(&body).unwrap()["token"].as_str().unwrap().to_string();
+
+        // The session stands in for the token everywhere the SPA sends one.
+        let bearer = format!("Bearer {session}");
+        let who = call_as(port, "GET", "/v1/whoami", Some(&bearer), "").1;
+        assert!(who.contains(r#""user":"dana""#), "{who}");
+        let basic = format!("Basic {}", base64_encode(format!("opencode:{session}").as_bytes()));
+        assert_eq!(call_as(port, "GET", "/v1/whoami", Some(&basic), "").0, 200);
+        assert_eq!(call_as(port, "GET", "/v1/whoami", Some("Bearer not-a-session"), "").0, 401);
+        // The token still works, and is nobody's account.
+        assert!(call_as(port, "GET", "/v1/whoami", Some("Bearer t"), "").1.contains(r#""user":null"#));
+
+        // The account's layout lives here, whatever address it signs in from.
+        assert_eq!(call_as(port, "GET", "/v1/me/layout", Some(&bearer), "").1, "null");
+        let layout = r#"{"groups":[],"activeGroupId":""}"#;
+        assert_eq!(call_as(port, "PUT", "/v1/me/layout", Some(&bearer), layout).0, 200);
+        // Read-only stops workspace writes, not an account keeping its Screens.
+        set_gateway_config(&env, &state, true, false, "read-only".into(), None, false).unwrap();
+        assert_eq!(call_as(port, "PUT", "/v1/me/layout", Some(&bearer), layout).0, 200);
+        assert_eq!(call_as(port, "GET", "/v1/me/layout", Some(&bearer), "").1, layout);
+        assert_eq!(call_as(port, "PUT", "/v1/me/layout", Some("Bearer t"), layout).0, 400, "the token has no layout");
+
+        assert_eq!(call_as(port, "POST", "/v1/logout", Some(&bearer), "").0, 200);
+        assert_eq!(call_as(port, "GET", "/v1/whoami", Some(&bearer), "").0, 401);
+        stop(&env, &state);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
