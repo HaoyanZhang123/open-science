@@ -1,6 +1,6 @@
 # Progress
 
-2026-10-21 00:20 · Preview tab works on a file opened for editing: the pane's edit draft used to short-circuit to the source editor before the Preview/Code toggle was consulted, so Preview did nothing on Markdown/HTML opened via "open file". Preview now renders the draft (autosave continues), Code returns to editing, and the pencil switches to Code.
+2026-10-21 19:40 · Preview tab works on a file opened for editing: the pane's edit draft used to short-circuit to the source editor before the Preview/Code toggle was consulted, so Preview did nothing on Markdown/HTML opened via "open file". Preview now renders the draft (autosave continues), Code returns to editing, and the pencil switches to Code.
 
 2026-10-20 23:10 · Tool-group header drops the red "N failed" badge (the agent reads and recovers from its own errors; the reader can't act on it, and each failed row still shows its error line) for a muted tool-call count that counts up while the agent works.
 
