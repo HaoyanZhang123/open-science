@@ -108,11 +108,14 @@ pub fn terminal_open(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     open(&app, id, cwd, cols, rows)
 }
 
-fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) -> Result<(), String> {
+/// True when a new shell was started; false when `id` was already running
+/// (a remount, or a shell a web client sharing these Screens opened first).
+/// Only a new shell may be sent the pane's startup command.
+fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String> {
     let state = app.state::<TerminalState>();
     // Reopening a live terminal is a no-op, not a second shell: a pane that
     // remounts (a Screen switch, a React strict-mode double effect) must not
@@ -132,7 +135,7 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
     // inserted.
     let mut terminals = state.0.lock().map_err(|_| "terminal state poisoned")?;
     if terminals.contains_key(&id) {
-        return Ok(());
+        return Ok(false);
     }
 
     let pty = NativePtySystem::default();
@@ -229,7 +232,7 @@ fn open(app: &AppHandle, id: String, cwd: Option<String>, cols: u16, rows: u16) 
             output,
         },
     );
-    Ok(())
+    Ok(true)
 }
 
 /// What every live terminal is doing: its shell's folder and the coding agent
@@ -331,7 +334,7 @@ fn close(app: &AppHandle, id: &str) -> Result<(), String> {
 pub struct GatewayTerminals(pub AppHandle);
 
 impl osd_core::gateway::Terminals for GatewayTerminals {
-    fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<(), String> {
+    fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String> {
         open(&self.0, id.to_string(), cwd, cols, rows)
     }
     fn write(&self, id: &str, data: &str) -> Result<(), String> {

@@ -200,7 +200,7 @@ export function TerminalPane({
         return cwd ?? null;
       });
 
-      await terminalTransport.open(leafId, cwd, term.cols, term.rows);
+      const created = await terminalTransport.open(leafId, cwd, term.cols, term.rows);
       const unsubscribe = await terminalTransport.subscribe(leafId, {
         onData: (chunk) => term.write(chunk),
         onExit: () => term.write(`\r\n${t("terminal.exited")}\r\n`),
@@ -245,7 +245,9 @@ export function TerminalPane({
 
       // Sent once, on the pane's FIRST open — never on a remount, which would
       // re-run it over whatever the user is doing in that shell.
-      const startup = terminalStartup({ command, agent });
+      // And only into a shell this open STARTED: one already running (the
+      // desktop window and a web page share it) is in the middle of something.
+      const startup = created ? terminalStartup({ command, agent }) : undefined;
       if (startup) {
         markTerminalUsed(leafId);
         void terminalTransport.write(leafId, `${startup}\n`);

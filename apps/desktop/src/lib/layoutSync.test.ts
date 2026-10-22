@@ -2,14 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LayoutGroup, PaneNode } from "./layout";
 
 vi.mock("./tauri", () => ({ isTauri: false, publishDesktopLayout: vi.fn() }));
+const who = vi.hoisted(() => ({ account: null as string | null }));
 vi.mock("./webMode", () => ({
   isGatewayWeb: true,
   gatewayOrigin: () => "http://gw",
   gatewayToken: () => "s".repeat(64),
+  signedInAccount: () => who.account,
 }));
 
 const { useLayoutStore, leaves } = await import("./layout");
-const { adoptAccountLayout, fetchDesktopScreens, layoutChanged, resetLayoutSync } = await import("./layoutSync");
+const { adoptAccountLayout, fetchDesktopScreens, layoutChanged, mirrorDesktopLayout, resetLayoutSync } =
+  await import("./layoutSync");
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
@@ -49,6 +52,7 @@ const desktop: LayoutGroup[] = [
 
 beforeEach(() => {
   resetLayoutSync();
+  who.account = "dana";
   useLayoutStore.getState().reset(null);
 });
 afterEach(() => {
@@ -58,7 +62,7 @@ afterEach(() => {
 
 describe("opening the desktop's Screens in a browser", () => {
   it("copies Screens with something in them under fresh ids, terminals as new shells", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ groups: desktop, activeGroupId: "g1" })));
+    vi.stubGlobal("fetch", vi.fn(async () => json({ rev: 5, layout: { groups: desktop, activeGroupId: "g1" } })));
     const screens = await fetchDesktopScreens();
     const before = useLayoutStore.getState().groups.length;
 
@@ -108,5 +112,55 @@ describe("an account's Screens", () => {
     await vi.runAllTimersAsync();
     expect(puts()).toHaveLength(2);
     expect(puts()[1][1]?.body).toBe('{"a":2}'); // one write for a burst of changes
+  });
+});
+
+describe("the token's Screens are the desktop window's, live", () => {
+  beforeEach(() => {
+    who.account = null;
+  });
+
+  it("takes the window's layout, follows newer revisions, and writes its own changes back", async () => {
+    let served = { rev: 10, layout: { groups: desktop.slice(0, 1), activeGroupId: "g1" } as unknown };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") return json({ rev: 12 });
+      const since = new URL(url).searchParams.get("since");
+      return since === String(served.rev) ? new Response(null, { status: 204 }) : json(served);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    await mirrorDesktopLayout();
+    expect(useLayoutStore.getState().groups.map((g) => g.name)).toEqual(["Analysis"]);
+    const puts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
+    // Adopting it is a local change too; it must not bounce back.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(puts()).toHaveLength(0);
+
+    // The window moved on: the next poll shows it.
+    served = {
+      rev: 11,
+      layout: { groups: [{ ...desktop[0], name: "Renamed on the desktop" }], activeGroupId: "g1" },
+    };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(useLayoutStore.getState().groups[0].name).toBe("Renamed on the desktop");
+
+    // A change made here goes to the shared layout, not an account's.
+    useLayoutStore.getState().renameGroup(useLayoutStore.getState().groups[0].id, "Renamed on the web");
+    await vi.advanceTimersByTimeAsync(400);
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0][0]).toBe("http://gw/v1/layout/desktop");
+    expect(puts()[0][1]?.body).toContain("Renamed on the web");
+  });
+
+  it("gives a window that has published nothing this browser's Screens", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "PUT" ? json({ rev: 1 }) : json({ rev: 0, layout: null }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await mirrorDesktopLayout();
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true),
+    );
   });
 });

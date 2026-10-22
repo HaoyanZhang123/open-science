@@ -56,6 +56,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
  */
 function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
   const { t } = useTranslation(["session", "nav"]);
+  const webUser = useRuntimeStore((s) => s.webUser);
   const [agents, setAgents] = useState<CliAgent[]>([]);
   const [busy, setBusy] = useState(false);
   const addGroup = useLayoutStore((s) => s.addGroup);
@@ -157,7 +158,8 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
             <FolderTree size={13} className="shrink-0 text-muted" />
             {t("nav:items.files")}
           </DropdownMenu.Item>
-          {isGatewayWeb && (
+          {/* An account copies the window's Screens; the token already shares them. */}
+          {isGatewayWeb && webUser && (
             <DropdownMenu.Item
               onSelect={() => void importDesktop()}
               className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"

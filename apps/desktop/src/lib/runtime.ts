@@ -60,7 +60,7 @@ import {
   type ProxyMode,
   type ToolStatus,
 } from "./tauri";
-import { isGatewayWeb, gatewayToken, gatewayOrigin } from "./webMode";
+import { isGatewayWeb, gatewayToken, gatewayOrigin, setSignedInAccount } from "./webMode";
 import { activeAcpAgent } from "./acpAgents";
 import { acpTransport } from "./acpTransport";
 import { hasParkedDraft } from "./composerStash";
@@ -3050,8 +3050,12 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         /* whoami is best-effort; the client still connects */
       }
       set({ serverUrl: baseUrl, workspace: directory, webReadOnly: readOnly, webTerminal: terminal, webUser: user });
-      // An account's Screens live on the desktop, the same at every address.
-      if (user) void import("./layoutSync").then(({ adoptAccountLayout }) => adoptAccountLayout());
+      setSignedInAccount(user);
+      // An account's Screens live on the desktop, the same at every address;
+      // the token shares the desktop window's own, live.
+      void import("./layoutSync").then(({ adoptAccountLayout, mirrorDesktopLayout }) =>
+        user ? adoptAccountLayout() : mirrorDesktopLayout(),
+      );
     } else {
       // Scope skill discovery to the sidecar's workspace (null in browser dev).
       directory = await workspacePath();

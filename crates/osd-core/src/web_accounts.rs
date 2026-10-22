@@ -315,14 +315,35 @@ pub fn write_layout(env: &Env, user: &str, json: &str) -> Result<(), String> {
     write_private(&layout_file(env, user)?, json.as_bytes())
 }
 
-/// The desktop window's own Screens, published so a web client can copy them.
-pub fn read_desktop_layout(env: &Env) -> Option<String> {
-    std::fs::read_to_string(desktop_layout_file(env).ok()?).ok()
+/// The revision of the desktop layout: every write raises it, so a client that
+/// mirrors the layout asks "anything newer than N?" instead of re-reading it.
+/// Seeded from the clock, so a restarted app never reissues a number a client
+/// still holds from before.
+static DESKTOP_REV: Mutex<u64> = Mutex::new(0);
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-pub fn write_desktop_layout(env: &Env, json: &str) -> Result<(), String> {
+/// The desktop window's Screens — shared with every web client signed in with
+/// the token, which mirrors them — and their revision.
+pub fn read_desktop_layout(env: &Env) -> Option<(u64, String)> {
+    let json = std::fs::read_to_string(desktop_layout_file(env).ok()?).ok()?;
+    let mut rev = DESKTOP_REV.lock().unwrap();
+    if *rev == 0 {
+        *rev = now_ms();
+    }
+    Some((*rev, json))
+}
+
+/// Store a new desktop layout (from the window, or from a token client) and
+/// return its revision.
+pub fn write_desktop_layout(env: &Env, json: &str) -> Result<u64, String> {
     check_layout(json)?;
-    write_private(&desktop_layout_file(env)?, json.as_bytes())
+    let mut rev = DESKTOP_REV.lock().unwrap();
+    write_private(&desktop_layout_file(env)?, json.as_bytes())?;
+    *rev = (*rev + 1).max(now_ms());
+    Ok(*rev)
 }
 
 #[cfg(test)]

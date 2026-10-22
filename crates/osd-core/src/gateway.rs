@@ -237,8 +237,10 @@ pub trait Assets: Send + Sync {
 /// `id` is the client's own handle — its pane's id — so a page reload reattaches
 /// to the same shell instead of starting another.
 pub trait Terminals: Send + Sync {
-    /// Start a shell, or do nothing if `id` is already running.
-    fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<(), String>;
+    /// Start a shell, or do nothing if `id` is already running. True when a
+    /// new shell was started — only then may the caller type a startup
+    /// command into it.
+    fn open(&self, id: &str, cwd: Option<String>, cols: u16, rows: u16) -> Result<bool, String>;
     fn write(&self, id: &str, data: &str) -> Result<(), String>;
     fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String>;
     fn close(&self, id: &str) -> Result<(), String>;
@@ -261,6 +263,9 @@ pub struct GatewayState {
     running: Mutex<Option<Running>>,
     assets: Arc<dyn Assets>,
     terminals: Option<Arc<dyn Terminals>>,
+    /// Called with a layout a token client wrote, so the desktop window shows
+    /// it at once (the window and token clients share one set of Screens).
+    on_desktop_layout: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// Called when a client created or deleted a session, so a desktop window
     /// showing the same workspace refreshes instead of going stale.
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -271,7 +276,13 @@ impl GatewayState {
         assets: Arc<dyn Assets>,
         on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Self {
-        GatewayState { running: Mutex::new(None), assets, terminals: None, on_sessions_changed }
+        GatewayState { running: Mutex::new(None), assets, terminals: None, on_desktop_layout: None, on_sessions_changed }
+    }
+
+    /// Tell the window when a token client changes the shared Screens.
+    pub fn with_desktop_layout_listener(mut self, f: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        self.on_desktop_layout = Some(f);
+        self
     }
 
     /// Offer this host's shells to web clients (still behind the user's switch).
@@ -292,6 +303,7 @@ struct Ctx {
     shared: Arc<Shared>,
     assets: Arc<dyn Assets>,
     terminals: Option<Arc<dyn Terminals>>,
+    on_desktop_layout: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -383,6 +395,7 @@ pub fn start_at(
         shared: shared.clone(),
         assets: state.assets.clone(),
         terminals: state.terminals.clone(),
+        on_desktop_layout: state.on_desktop_layout.clone(),
         on_sessions_changed: state.on_sessions_changed.clone(),
     });
     let sf = stop_flag.clone();
@@ -860,7 +873,7 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
         // opencode.ai itself (no CORS headers), so the web client asks us and
         // gets the identical list the desktop picker filters by. Carries no
         // credentials in either direction.
-        (_, ["terminals", id, ..]) => terminal_route(stream, req, ctx, id, &segs[2..]),
+        (_, ["terminals", id, ..]) => terminal_route(stream, req, ctx, id, &segs[2..], who),
         ("POST", ["logout"]) => match who {
             Principal::User { session, .. } => match crate::web_accounts::logout(&ctx.env, session) {
                 Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
@@ -885,10 +898,31 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             }
             Principal::Token => respond_json(stream, 400, "{\"error\":\"not signed in with an account\"}"),
         },
-        // The desktop window's Screens, for "open the desktop's Screens" on the web.
+        // The desktop window's Screens. A token client mirrors them (polling
+        // with `since`, answered 204 while nothing changed); an account copies
+        // them on request.
         ("GET", ["layout", "desktop"]) => match crate::web_accounts::read_desktop_layout(&ctx.env) {
-            Some(json) => respond_json(stream, 200, &json),
-            None => respond_json(stream, 200, "null"),
+            Some((rev, _)) if req.query_get("since").and_then(|v| v.parse::<u64>().ok()) == Some(rev) => {
+                respond(stream, 204, "application/json", b"")
+            }
+            Some((rev, json)) => respond_json(stream, 200, &format!("{{\"rev\":{rev},\"layout\":{json}}}")),
+            None => respond_json(stream, 200, "{\"rev\":0,\"layout\":null}"),
+        },
+        // Only the token shares the window's Screens; an account has its own.
+        ("PUT", ["layout", "desktop"]) => match who {
+            Principal::Token => {
+                let body = String::from_utf8_lossy(&req.body);
+                match crate::web_accounts::write_desktop_layout(&ctx.env, &body) {
+                    Ok(rev) => {
+                        if let Some(f) = &ctx.on_desktop_layout {
+                            f(&body);
+                        }
+                        respond_json(stream, 200, &format!("{{\"rev\":{rev}}}"))
+                    }
+                    Err(e) => respond_json(stream, 400, &err_json(&e)),
+                }
+            }
+            Principal::User { .. } => respond_json(stream, 403, "{\"error\":\"an account keeps its own layout\"}"),
         },
         ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
             Ok(ids) => {
@@ -1412,14 +1446,19 @@ struct TerminalSize {
 /// `/v1/terminals/{id}[/input|/resize|/output]`. The read-only gate has already
 /// refused every write; `ctx.terminals()` refuses the rest unless the user
 /// turned terminals on.
-fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, rest: &[&str]) {
+/// The token is the desktop's own owner and shares its Screens, so it reaches
+/// the window's shells and the shells it opens belong to the desktop (they
+/// outlive a revoked token, which simply loses access). An account reaches
+/// only the shells it opened, and those die with its access.
+fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, rest: &[&str], who: &Principal) {
     let Some(terminals) = ctx.terminals() else {
         return respond_json(stream, 403, "{\"error\":\"terminals are off on the desktop\"}");
     };
     if !valid_terminal_id(id) {
         return respond_json(stream, 400, "{\"error\":\"bad terminal id\"}");
     }
-    let ours = ctx.shared.remote_terminals.lock().unwrap().contains(id);
+    let owner = matches!(who, Principal::Token);
+    let ours = owner || ctx.shared.remote_terminals.lock().unwrap().contains(id);
     let done = |stream: &mut TcpStream, r: Result<(), String>| match r {
         Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
         Err(e) => respond_json(stream, 400, &err_json(&e)),
@@ -1434,11 +1473,15 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
             if !ours && terminals.subscribe(id).is_some() {
                 return respond_json(stream, 409, "{\"error\":\"terminal id in use\"}");
             }
-            let r = terminals.open(id, o.cwd.filter(|d| !d.trim().is_empty()), o.cols, o.rows);
-            if r.is_ok() {
-                ctx.shared.remote_terminals.lock().unwrap().insert(id.to_string());
+            match terminals.open(id, o.cwd.filter(|d| !d.trim().is_empty()), o.cols, o.rows) {
+                Ok(created) => {
+                    if !owner {
+                        ctx.shared.remote_terminals.lock().unwrap().insert(id.to_string());
+                    }
+                    respond_json(stream, 200, &format!("{{\"created\":{created}}}"))
+                }
+                Err(e) => respond_json(stream, 400, &err_json(&e)),
             }
-            done(stream, r)
         }
         _ if !ours => respond_json(stream, 404, "{\"error\":\"no such terminal\"}"),
         ("POST", ["input"]) => match serde_json::from_slice::<TerminalInput>(&req.body) {
@@ -2294,9 +2337,11 @@ mod tests {
     }
 
     impl Terminals for FakeTerminals {
-        fn open(&self, id: &str, _cwd: Option<String>, _cols: u16, _rows: u16) -> Result<(), String> {
-            self.live.lock().unwrap().entry(id.to_string()).or_default();
-            Ok(())
+        fn open(&self, id: &str, _cwd: Option<String>, _cols: u16, _rows: u16) -> Result<bool, String> {
+            let mut live = self.live.lock().unwrap();
+            let created = !live.contains_key(id);
+            live.entry(id.to_string()).or_default();
+            Ok(created)
         }
         fn write(&self, id: &str, data: &str) -> Result<(), String> {
             let mut live = self.live.lock().unwrap();
@@ -2337,8 +2382,9 @@ mod tests {
     }
 
     #[test]
-    fn web_terminals_need_the_switch_a_full_token_and_die_with_the_access() {
+    fn web_terminals_need_the_switch_and_full_access() {
         let (env, dir) = env_with_recorded_port("terminals", None);
+        crate::web_accounts::set_password(&env, "erin", "a long password").unwrap();
         let fake = Arc::new(FakeTerminals::default());
         fake.open("desktop-pane", None, 80, 24).unwrap();
         let state = GatewayState::default().with_terminals(fake.clone());
@@ -2347,44 +2393,91 @@ mod tests {
         write_persisted(&env, &p).unwrap();
         let port = start_at(&env, &state, &p, None).unwrap();
         let open = r#"{"cwd":null,"cols":80,"rows":24}"#;
+        let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"erin","password":"a long password"}"#);
+        let session = serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap().to_string();
+        let account = format!("Bearer {session}");
+        let token = Some("Bearer t");
 
-        // Off by default: the token alone opens no shell, and says so.
+        // Off by default: neither the token nor an account opens a shell.
         assert_eq!(call(port, "POST", "/v1/terminals/web1", open).0, 403);
+        assert_eq!(call_as(port, "POST", "/v1/terminals/web1", Some(&account), open).0, 403);
         assert!(call(port, "GET", "/v1/whoami", "").1.contains("\"terminal\":false"));
 
         set_gateway_config(&env, &state, true, false, "full".into(), None, true).unwrap();
         assert!(call(port, "GET", "/v1/whoami", "").1.contains("\"terminal\":true"));
-        assert_eq!(call(port, "POST", "/v1/terminals/web1", open).0, 200);
         assert_eq!(call(port, "POST", "/v1/terminals/bad$id", open).0, 400);
-        // A terminal the desktop window owns is not reachable from the web.
-        assert_eq!(call(port, "POST", "/v1/terminals/desktop-pane", open).0, 409);
-        assert_eq!(call(port, "POST", "/v1/terminals/desktop-pane/input", r#"{"data":"x"}"#).0, 404);
+
+        // The token shares the window's Screens, so it attaches to the window's
+        // shells — and says it did not start one, so no startup is retyped.
+        let (status, body) = call_as(port, "POST", "/v1/terminals/desktop-pane", token, open);
+        assert_eq!((status, body.as_str()), (200, r#"{"created":false}"#));
+        assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane/input", token, r#"{"data":"x"}"#).0, 200);
+        // An account reaches only what it opened.
+        assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane", Some(&account), open).0, 409);
+        assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane/input", Some(&account), r#"{"data":"x"}"#).0, 404);
+        let (status, body) = call_as(port, "POST", "/v1/terminals/acct1", Some(&account), open);
+        assert_eq!((status, body.as_str()), (200, r#"{"created":true}"#));
+        assert_eq!(call_as(port, "POST", "/v1/terminals/tok1", token, open).0, 200);
 
         // Output streams as SSE; typing comes back through it.
         let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
         stream
-            .write_all(b"GET /v1/terminals/web1/output HTTP/1.1\r\nAuthorization: Bearer t\r\n\r\n")
+            .write_all(format!("GET /v1/terminals/acct1/output HTTP/1.1\r\nAuthorization: {account}\r\n\r\n").as_bytes())
             .unwrap();
         std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(call(port, "POST", "/v1/terminals/web1/input", r#"{"data":"ls\n"}"#).0, 200);
-        // Read-only: the same token can no longer type, and its shells are gone.
+        assert_eq!(call_as(port, "POST", "/v1/terminals/acct1/input", Some(&account), r#"{"data":"ls\n"}"#).0, 200);
         std::thread::sleep(Duration::from_millis(100));
+
+        // Read-only: no more shells; the account's are killed, the desktop's
+        // (including the one the token opened) are not.
         set_gateway_config(&env, &state, true, false, "read-only".into(), None, true).unwrap();
         let mut out = String::new();
         stream.read_to_string(&mut out).unwrap();
         assert!(out.contains("text/event-stream"), "{out}");
         assert!(out.contains(r#"data: "echo:ls\n""#), "{out}");
         assert!(out.contains("event: exit"), "the stream ends when the shell is killed: {out}");
-        assert_eq!(call(port, "POST", "/v1/terminals/web1", open).0, 403);
-        assert_eq!(*fake.closed.lock().unwrap(), vec!["web1".to_string()]);
-
-        // Back to full: a new shell, then stopping the gateway kills it too —
-        // and never the desktop's own.
-        set_gateway_config(&env, &state, true, false, "full".into(), None, true).unwrap();
-        assert_eq!(call(port, "POST", "/v1/terminals/web2", open).0, 200);
+        assert_eq!(call(port, "POST", "/v1/terminals/web2", open).0, 403);
+        assert_eq!(*fake.closed.lock().unwrap(), vec!["acct1".to_string()]);
+        let live = fake.live.lock().unwrap();
+        assert!(live.contains_key("desktop-pane") && live.contains_key("tok1"));
+        drop(live);
         stop(&env, &state);
-        assert_eq!(*fake.closed.lock().unwrap(), vec!["web1".to_string(), "web2".to_string()]);
-        assert!(fake.live.lock().unwrap().contains_key("desktop-pane"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_token_shares_the_desktop_layout_and_an_account_does_not() {
+        let (env, dir) = env_with_recorded_port("desklayout", None);
+        crate::web_accounts::set_password(&env, "finn", "a long password").unwrap();
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = seen.clone();
+        let state = GatewayState::default()
+            .with_desktop_layout_listener(Arc::new(move |json: &str| sink.lock().unwrap().push(json.to_string())));
+        let p = read_persisted(&env);
+        let port = start_at(&env, &state, &p, None).unwrap();
+        let token = Some("Bearer t");
+
+        assert_eq!(call_as(port, "GET", "/v1/layout/desktop", token, "").1, r#"{"rev":0,"layout":null}"#);
+        let rev0 = crate::web_accounts::write_desktop_layout(&env, r#"{"groups":[1]}"#).unwrap();
+        let (_, body) = call_as(port, "GET", "/v1/layout/desktop", token, "");
+        assert_eq!(body, format!(r#"{{"rev":{rev0},"layout":{{"groups":[1]}}}}"#));
+        // Nothing newer: an empty answer, so a mirroring client polls cheaply.
+        assert_eq!(call_as(port, "GET", &format!("/v1/layout/desktop?since={rev0}"), token, "").0, 204);
+
+        // A token client's change reaches the window, and raises the revision.
+        let (status, body) = call_as(port, "PUT", "/v1/layout/desktop", token, r#"{"groups":[2]}"#);
+        assert_eq!(status, 200);
+        let rev1: u64 = serde_json::from_str::<serde_json::Value>(&body).unwrap()["rev"].as_u64().unwrap();
+        assert!(rev1 > rev0);
+        assert_eq!(*seen.lock().unwrap(), vec![r#"{"groups":[2]}"#.to_string()]);
+
+        // An account may look (to copy), never write.
+        let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"finn","password":"a long password"}"#);
+        let session = serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap().to_string();
+        let account = format!("Bearer {session}");
+        assert_eq!(call_as(port, "GET", "/v1/layout/desktop", Some(&account), "").0, 200);
+        assert_eq!(call_as(port, "PUT", "/v1/layout/desktop", Some(&account), r#"{"groups":[3]}"#).0, 403);
+        stop(&env, &state);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2519,6 +2612,7 @@ mod tests {
             }),
             assets: Arc::new(NoAssets),
             terminals: None,
+            on_desktop_layout: None,
             on_sessions_changed: None,
         };
         (ctx, root)

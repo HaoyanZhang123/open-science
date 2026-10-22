@@ -36,6 +36,19 @@ export function clearGatewayToken(): void {
   }
 }
 
+/** The account this browser signed in as (from /v1/whoami), or null when it
+ *  used the token. The token shares the desktop window's Screens and shells;
+ *  an account keeps its own. */
+let account: string | null = null;
+
+export function signedInAccount(): string | null {
+  return account;
+}
+
+export function setSignedInAccount(name: string | null): void {
+  account = name;
+}
+
 /** Same-origin gateway base (the page was served by it). */
 export function gatewayOrigin(): string {
   return typeof window !== "undefined" ? window.location.origin : "";

@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./tauri", () => ({ isTauri: false }));
+const who = vi.hoisted(() => ({ account: "dana" as string | null }));
 vi.mock("./webMode", () => ({
   isGatewayWeb: true,
   gatewayOrigin: () => "http://gw",
   gatewayToken: () => "tok",
-  gatewayPost: vi.fn(async () => ({ ok: true })),
+  gatewayPost: vi.fn(async () => ({ created: true })),
+  signedInAccount: () => who.account,
 }));
 
 const { readEvents, terminalTransport } = await import("./terminalTransport");
@@ -23,7 +25,10 @@ function body(parts: string[]): ReadableStream<Uint8Array> {
 }
 
 afterEach(() => vi.unstubAllGlobals());
-beforeEach(() => window.localStorage.setItem("os_terminal_client", "abcdefabcdef"));
+beforeEach(() => {
+  window.localStorage.setItem("os_terminal_client", "abcdefabcdef");
+  who.account = "dana";
+});
 
 describe("readEvents", () => {
   it("joins frames split across reads, skips keepalives, and stops on exit", async () => {
@@ -44,7 +49,17 @@ describe("readEvents", () => {
 });
 
 describe("the web transport", () => {
-  it("names its shells per browser, so pane ids from other clients never collide", async () => {
+  it("with the token, uses the pane id itself — the same shell as the desktop window's — and never ends it", async () => {
+    who.account = null;
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await terminalTransport.open("p3", undefined, 80, 24)).toBe(true);
+    expect(gatewayPost).toHaveBeenLastCalledWith("/v1/terminals/p3", { cwd: null, cols: 80, rows: 24 });
+    await terminalTransport.close("p3");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("with an account, names its shells per browser, so pane ids from other clients never collide", async () => {
     window.localStorage.removeItem("os_terminal_client");
     await terminalTransport.write("p3", "x");
     const id = window.localStorage.getItem("os_terminal_client")!;

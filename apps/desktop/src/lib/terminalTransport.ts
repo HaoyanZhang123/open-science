@@ -5,7 +5,7 @@
 // through `/v1/terminals/...`, which the user has to switch on in Settings. The
 // pane does not care which: it opens, writes, resizes, closes and reads output.
 import { isTauri } from "./tauri";
-import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb } from "./webMode";
+import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, signedInAccount } from "./webMode";
 
 export interface TerminalOutput {
   onData: (chunk: string) => void;
@@ -17,7 +17,9 @@ export interface TerminalOutput {
 }
 
 export interface TerminalTransport {
-  open(id: string, cwd: string | undefined, cols: number, rows: number): Promise<void>;
+  /** True when a new shell was started; false when it was already running —
+   *  then nothing may be typed into it on the pane's behalf. */
+  open(id: string, cwd: string | undefined, cols: number, rows: number): Promise<boolean>;
   write(id: string, data: string): Promise<void>;
   resize(id: string, cols: number, rows: number): Promise<void>;
   close(id: string): Promise<void>;
@@ -28,7 +30,7 @@ export interface TerminalTransport {
 const desktop: TerminalTransport = {
   async open(id, cwd, cols, rows) {
     const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("terminal_open", { id, cwd, cols, rows });
+    return invoke<boolean>("terminal_open", { id, cwd, cols, rows });
   },
   async write(id, data) {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -57,11 +59,12 @@ const desktop: TerminalTransport = {
   },
 };
 
-/** This browser's own name for its shells. Pane ids are `p1`, `p2`… in every
- *  client, so a bare pane id would collide with a desktop terminal (which the
- *  gateway refuses) or — worse — with another browser's, which would then type
- *  into this one's shell. One random id per browser, kept so a reload finds
- *  its shells again. */
+/** This browser's own name for an ACCOUNT's shells. Pane ids are `p1`, `p2`…
+ *  in every client, so a bare pane id would collide with a desktop terminal
+ *  (which the gateway refuses an account) or with another browser's, which
+ *  would then type into this one's shell. One random id per browser, kept so a
+ *  reload finds its shells again. The token needs none: it shares the window's
+ *  Screens, so the same pane id IS the same shell, on purpose. */
 function clientId(): string {
   const KEY = "os_terminal_client";
   try {
@@ -81,7 +84,10 @@ function randomId(): string {
   return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
 }
 
-const path = (id: string, rest = "") => `/v1/terminals/w${clientId()}-${encodeURIComponent(id)}${rest}`;
+const path = (id: string, rest = "") => {
+  const wire = signedInAccount() ? `w${clientId()}-${id}` : id;
+  return `/v1/terminals/${encodeURIComponent(wire)}${rest}`;
+};
 const authHeader = (): Record<string, string> => {
   const token = gatewayToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -92,7 +98,8 @@ const RECONNECT_MS = 1000;
 
 const web: TerminalTransport = {
   async open(id, cwd, cols, rows) {
-    await gatewayPost(path(id), { cwd: cwd ?? null, cols, rows });
+    const res = await gatewayPost<{ created?: boolean }>(path(id), { cwd: cwd ?? null, cols, rows });
+    return res?.created === true;
   },
   async write(id, data) {
     await gatewayPost(path(id, "/input"), { data });
@@ -101,6 +108,11 @@ const web: TerminalTransport = {
     await gatewayPost(path(id, "/resize"), { cols, rows });
   },
   async close(id) {
+    // With the token, shells belong to the desktop window, whose Screens this
+    // page shares: the window ends a shell when its pane leaves the shared
+    // layout. Ending it from here as well could kill one the window had just
+    // opened, from a moment when the two layouts briefly disagreed.
+    if (!signedInAccount()) return;
     await fetch(`${gatewayOrigin()}${path(id)}`, { method: "DELETE", headers: authHeader() });
   },
   async subscribe(id, output) {
