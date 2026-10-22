@@ -66,6 +66,26 @@ export function TerminalPane({
   const { t } = useTranslation("session");
   const host = useRef<HTMLDivElement | null>(null);
   const [searching, setSearching] = useState(false);
+  const searchingRef = useRef(searching);
+  searchingRef.current = searching;
+  // The xterm key handler is bound once, when the terminal is created, but the
+  // terminal outlives this component (it is re-parented on every split or
+  // maximize). It reaches the search bar through this entry, which whichever
+  // component currently shows the terminal keeps pointed at itself.
+  useEffect(() => {
+    const controls: FindControls = {
+      open: () => setSearching(true),
+      close: () => {
+        setSearching(false);
+        getTerminal(leafId)?.term.focus();
+      },
+      isOpen: () => searchingRef.current,
+    };
+    findControls.set(leafId, controls);
+    return () => {
+      if (findControls.get(leafId) === controls) findControls.delete(leafId);
+    };
+  }, [leafId]);
 
   useEffect(() => {
     if (!isTauri || !host.current) return;
@@ -133,9 +153,22 @@ export function TerminalPane({
         if (
           event.type === "keydown" &&
           (event.metaKey || event.ctrlKey) &&
-          event.key === "f"
+          event.key.toLowerCase() === "f"
         ) {
-          setSearching(true);
+          event.preventDefault();
+          findControls.get(leafId)?.open();
+          return false;
+        }
+        // Escape with the bar open closes the bar, even with the caret back in
+        // the terminal. Marked handled, or macOS takes an unclaimed Escape as
+        // "leave full screen".
+        if (
+          event.type === "keydown" &&
+          event.key === "Escape" &&
+          findControls.get(leafId)?.isOpen()
+        ) {
+          event.preventDefault();
+          findControls.get(leafId)?.close();
           return false;
         }
         // The jump palette's chord is the app's too: left to xterm, Ctrl+Shift+J
@@ -378,16 +411,22 @@ export function TerminalPane({
         {searching && (
           <TerminalSearch
             addon={getTerminal(leafId)?.search ?? null}
-            onClose={() => {
-              setSearching(false);
-              getTerminal(leafId)?.term.focus();
-            }}
+            onClose={() => findControls.get(leafId)?.close()}
           />
         )}
       </div>
     </ContextMenu>
   );
 }
+
+interface FindControls {
+  open: () => void;
+  close: () => void;
+  isOpen: () => boolean;
+}
+
+/** The find bar of whichever component currently shows each terminal. */
+const findControls = new Map<string, FindControls>();
 
 /**
  * Terminal defaults, borrowed from Orca's `lib/pane-manager/pane-terminal-options.ts`
