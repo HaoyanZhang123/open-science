@@ -1,17 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LayoutGroup, PaneNode } from "./layout";
+import type { LayoutGroup } from "./layout";
 
 vi.mock("./tauri", () => ({ isTauri: false, publishDesktopLayout: vi.fn() }));
-const who = vi.hoisted(() => ({ account: null as string | null }));
+const who = vi.hoisted(() => ({ account: null as string | null, source: "desktop" as "desktop" | "own" }));
 vi.mock("./webMode", () => ({
   isGatewayWeb: true,
   gatewayOrigin: () => "http://gw",
   gatewayToken: () => "s".repeat(64),
   signedInAccount: () => who.account,
+  layoutSource: () => who.source,
+  setLayoutSource: (s: "desktop" | "own") => {
+    who.source = s;
+  },
 }));
 
 const { useLayoutStore, leaves } = await import("./layout");
-const { adoptAccountLayout, fetchDesktopScreens, layoutChanged, mirrorDesktopLayout, resetLayoutSync } =
+const { adoptAccountLayout, layoutChanged, mirrorDesktopLayout, resetLayoutSync, switchLayoutSource } =
   await import("./layoutSync");
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -53,32 +57,13 @@ const desktop: LayoutGroup[] = [
 beforeEach(() => {
   resetLayoutSync();
   who.account = "dana";
+  who.source = "desktop";
+  window.localStorage.clear();
   useLayoutStore.getState().reset(null);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
-});
-
-describe("opening the desktop's Screens in a browser", () => {
-  it("copies Screens with something in them under fresh ids, terminals as new shells", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ rev: 5, layout: { groups: desktop, activeGroupId: "g1" } })));
-    const screens = await fetchDesktopScreens();
-    const before = useLayoutStore.getState().groups.length;
-
-    expect(useLayoutStore.getState().importScreens(screens)).toBe(1);
-    const s = useLayoutStore.getState();
-    expect(s.groups).toHaveLength(before + 1);
-    const copy = s.groups.find((g) => g.id === s.activeGroupId)!;
-    expect(copy.name).toBe("Analysis");
-    expect(copy.projectId).toBe("proj-a");
-    const ids = [copy.tree!.id, ...leaves(copy.tree!).map((l) => l.id)];
-    expect(ids.some((id) => ["p1", "p2", "p3"].includes(id))).toBe(false);
-    const [chat, term] = leaves(copy.tree as PaneNode);
-    expect(chat.sessionId).toBe("ses_1");
-    // Same folder and name; never the original's command or agent resume.
-    expect(term.content).toEqual({ kind: "terminal", cwd: "/work", name: "build" });
-  });
 });
 
 describe("an account's Screens", () => {
@@ -162,5 +147,56 @@ describe("the token's Screens are the desktop window's, live", () => {
     await vi.waitFor(() =>
       expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true),
     );
+  });
+});
+
+describe("a token client's own Screens", () => {
+  beforeEach(() => {
+    who.account = null;
+  });
+
+  it("start as a copy of the window's, then leave the window alone; switching back follows it again", async () => {
+    const served = { rev: 10, layout: { groups: desktop.slice(0, 1), activeGroupId: "g1" } };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PUT") return json({ rev: 99 });
+      return new URL(url).searchParams.get("since") === "10" ? new Response(null, { status: 204 }) : json(served);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+    await mirrorDesktopLayout();
+    expect(useLayoutStore.getState().groups[0].name).toBe("Analysis");
+
+    await switchLayoutSource("own");
+    const own = useLayoutStore.getState();
+    expect(own.groups.map((g) => g.name)).toEqual(["Analysis"]);
+    const [, term] = leaves(own.groups[0].tree!);
+    expect(term.id).not.toBe("p3"); // its own pane, so its own shell
+    expect(term.content).toEqual({ kind: "terminal", cwd: "/work", name: "build" });
+
+    // Changes stay in this browser: nothing is written to the window.
+    useLayoutStore.getState().renameGroup(own.groups[0].id, "Mine");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+    expect(window.localStorage.getItem("ai4s.layout.own")).toContain("Mine");
+
+    // Back to the window's, and its Screens are shown again.
+    await switchLayoutSource("desktop");
+    expect(useLayoutStore.getState().groups[0].name).toBe("Analysis");
+    // And back to its own: kept, not copied afresh.
+    await switchLayoutSource("own");
+    expect(useLayoutStore.getState().groups[0].name).toBe("Mine");
+  });
+
+  it("are what a reload shows when this browser chose them", async () => {
+    window.localStorage.setItem(
+      "ai4s.layout.own",
+      JSON.stringify({ groups: [{ ...desktop[0], name: "Saved here" }], activeGroupId: "g1" }),
+    );
+    who.source = "own";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await mirrorDesktopLayout();
+    expect(useLayoutStore.getState().groups[0].name).toBe("Saved here");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

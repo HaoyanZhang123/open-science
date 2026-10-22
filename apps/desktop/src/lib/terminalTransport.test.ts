@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./tauri", () => ({ isTauri: false }));
-const who = vi.hoisted(() => ({ account: "dana" as string | null }));
+const who = vi.hoisted(() => ({ account: "dana" as string | null, source: "desktop" as "desktop" | "own" }));
 vi.mock("./webMode", () => ({
   isGatewayWeb: true,
   gatewayOrigin: () => "http://gw",
   gatewayToken: () => "tok",
   gatewayPost: vi.fn(async () => ({ created: true })),
   signedInAccount: () => who.account,
+  layoutSource: () => who.source,
 }));
 
 const { readEvents, terminalTransport } = await import("./terminalTransport");
@@ -28,6 +29,7 @@ afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   window.localStorage.setItem("os_terminal_client", "abcdefabcdef");
   who.account = "dana";
+  who.source = "desktop";
 });
 
 describe("readEvents", () => {
@@ -57,6 +59,21 @@ describe("the web transport", () => {
     expect(gatewayPost).toHaveBeenLastCalledWith("/v1/terminals/p3", { cwd: null, cols: 80, rows: 24 });
     await terminalTransport.close("p3");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("with the token on its own Screens, opens shells of its own, and a later switch does not re-route them", async () => {
+    who.account = null;
+    who.source = "own";
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await terminalTransport.open("p8", undefined, 80, 24);
+    expect(gatewayPost).toHaveBeenLastCalledWith("/v1/terminals/wabcdefabcdef-p8", { cwd: null, cols: 80, rows: 24 });
+    who.source = "desktop"; // switched back to the window's Screens
+    await terminalTransport.close("p8");
+    expect(fetchMock).toHaveBeenCalledWith("http://gw/v1/terminals/wabcdefabcdef-p8", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer tok" },
+    });
   });
 
   it("with an account, names its shells per browser, so pane ids from other clients never collide", async () => {

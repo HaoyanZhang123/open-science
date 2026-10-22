@@ -8,6 +8,7 @@ import {
   Folder,
   FolderTree,
   Monitor,
+  UserRound,
   NotebookPen,
   Pencil,
   Plus,
@@ -28,8 +29,8 @@ import {
 import { createMarkdown, createNotebook } from "@/lib/newFile";
 import { toast } from "@/lib/toast";
 import { isTauri } from "@/lib/tauri";
-import { isGatewayWeb } from "@/lib/webMode";
-import { fetchDesktopScreens } from "@/lib/layoutSync";
+import { isGatewayWeb, layoutSource, type LayoutSource } from "@/lib/webMode";
+import { switchLayoutSource } from "@/lib/layoutSync";
 import { startSessionScreen, useRuntimeStore } from "@/lib/runtime";
 import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents";
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
@@ -56,7 +57,6 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
  */
 function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
   const { t } = useTranslation(["session", "nav"]);
-  const webUser = useRuntimeStore((s) => s.webUser);
   const [agents, setAgents] = useState<CliAgent[]>([]);
   const [busy, setBusy] = useState(false);
   const addGroup = useLayoutStore((s) => s.addGroup);
@@ -86,20 +86,6 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
     try {
       const path = await make();
       addGroup({ kind, path, root: "workspace" });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** Copy the desktop window's Screens in, as new Screens of this browser. */
-  const importDesktop = async () => {
-    setBusy(true);
-    try {
-      const added = useLayoutStore.getState().importScreens(await fetchDesktopScreens());
-      if (added) toast.success(t("group.importedDesktop", { count: added }));
-      else toast.error(t("group.importDesktopNone"));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -158,16 +144,6 @@ function NewScreenButton({ onNewScreen }: { onNewScreen: () => void }) {
             <FolderTree size={13} className="shrink-0 text-muted" />
             {t("nav:items.files")}
           </DropdownMenu.Item>
-          {/* An account copies the window's Screens; the token already shares them. */}
-          {isGatewayWeb && webUser && (
-            <DropdownMenu.Item
-              onSelect={() => void importDesktop()}
-              className="flex cursor-pointer items-center gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
-            >
-              <Monitor size={13} className="shrink-0 text-muted" />
-              {t("group.importDesktop")}
-            </DropdownMenu.Item>
-          )}
           {/* A new file is written to the desktop's disk, and a notebook runs on
               its kernel — neither is reachable from a browser. */}
           {isTauri && (
@@ -283,6 +259,71 @@ function ProjectSwitcher() {
 }
 
 /**
+ * Which Screens a browser signed in with the TOKEN is showing: the desktop
+ * window's own, followed live, or a set of its own kept in this browser.
+ * Absent everywhere else — the window has only its own, and an account only
+ * ever has its own.
+ */
+function LayoutSourceSwitcher() {
+  const { t } = useTranslation("session");
+  const webUser = useRuntimeStore((s) => s.webUser);
+  const [source, setSource] = useState<LayoutSource>(layoutSource);
+  const [busy, setBusy] = useState(false);
+  if (!isGatewayWeb || webUser) return null;
+  const choose = async (next: LayoutSource) => {
+    if (next === source || busy) return;
+    setBusy(true);
+    try {
+      await switchLayoutSource(next);
+      setSource(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const choices: { id: LayoutSource; label: string; hint: string }[] = [
+    { id: "desktop", label: t("group.sourceDesktop"), hint: t("group.sourceDesktopHint") },
+    { id: "own", label: t("group.sourceOwn"), hint: t("group.sourceOwnHint") },
+  ];
+  const Icon = source === "desktop" ? Monitor : UserRound;
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          aria-label={t("group.sourceMenu")}
+          title={t("group.sourceMenu")}
+          className="mr-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-muted hover:bg-surface-2 hover:text-text"
+        >
+          <Icon size={13} className="shrink-0" />
+          <span className="truncate">{source === "desktop" ? t("group.sourceDesktop") : t("group.sourceOwn")}</span>
+          <ChevronDown size={12} className="shrink-0" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 w-[280px] rounded-card border border-border bg-surface p-1 text-[13px] text-text shadow-pop"
+        >
+          {choices.map((c) => (
+            <DropdownMenu.Item
+              key={c.id}
+              onSelect={() => void choose(c.id)}
+              className="flex cursor-pointer items-start gap-2 rounded-input px-2 py-1.5 outline-none data-[highlighted]:bg-surface-2"
+            >
+              <Check size={13} className={cn("mt-0.5 shrink-0", c.id === source ? "text-accent" : "invisible")} />
+              <span className="min-w-0">
+                <span className="block">{c.label}</span>
+                <span className="block text-[12px] leading-snug text-muted">{c.hint}</span>
+              </span>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+/**
  * Does closing this Screen need a confirmation?
  *
  * Two Screens are worth nothing and close on the click: an empty one, and the
@@ -377,6 +418,7 @@ export function GroupTabs() {
             and the + button stay undraggable: a tab is never the drag element
             itself, and Tauri treats <button> as clickable, which blocks drag. */}
         <ProjectSwitcher />
+        <LayoutSourceSwitcher />
         <div
           data-tauri-drag-region={overlayTitlebar || undefined}
           className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"

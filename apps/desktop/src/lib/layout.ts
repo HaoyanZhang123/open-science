@@ -566,6 +566,17 @@ function persist(groups: LayoutGroup[], activeGroupId: string): void {
   void import("./layoutSync").then(({ layoutChanged }) => layoutChanged(json));
 }
 
+/** A copy of a whole layout under fresh ids: where a token client's own
+ *  Screens start, the first time it leaves the desktop window's. */
+export function cloneLayout(layout: Persisted): Persisted {
+  const groups = layout.groups.map((g) => {
+    const tree = g.tree && cloneForImport(g.tree);
+    return { ...g, id: genGroupId(), tree, focusedLeafId: tree ? leaves(tree)[0].id : null, zoomedLeafId: null };
+  });
+  const active = layout.groups.findIndex((g) => g.id === layout.activeGroupId);
+  return { groups, activeGroupId: groups[Math.max(0, active)].id };
+}
+
 /** A copy of `node` under fresh ids. A terminal is copied as a NEW shell in the
  *  same folder: the original's shell is not this client's to type into, and
  *  re-running its startup command or agent resume would start a second copy of
@@ -723,10 +734,6 @@ interface LayoutState {
   /** Replace every Screen with `layout` — a signed-in web account's own,
    *  kept on the desktop. */
   adoptLayout: (layout: Persisted) => void;
-  /** Append copies of `groups` (the desktop's Screens) as new Screens under
-   *  fresh ids, and show the first. Empty and draft-only Screens are skipped.
-   *  Returns how many were added. */
-  importScreens: (groups: LayoutGroup[]) => number;
   /** Drop leaves whose session vanished (deleted / not in `valid`), collapsing
    *  toward a single pane. A null-session (draft) leaf is always kept. */
   pruneSessions: (valid: Set<string>) => void;
@@ -803,30 +810,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
           ephemeralGroupId: null,
         };
       }),
-
-    importScreens: (source) => {
-      const copies: LayoutGroup[] = source
-        .filter((g) => g.tree && !draftLeafOf(g))
-        .map((g) => {
-          const tree = cloneForImport(g.tree!);
-          return { ...g, id: genGroupId(), tree, focusedLeafId: leaves(tree)[0].id, zoomedLeafId: null };
-        });
-      if (copies.length === 0) return 0;
-      set((s) => {
-        const groups = [...s.groups, ...copies];
-        const first = copies[0];
-        persist(groups, first.id);
-        return {
-          groups,
-          activeGroupId: first.id,
-          tree: first.tree,
-          focusedLeafId: first.focusedLeafId,
-          zoomedLeafId: null,
-          ephemeralGroupId: null,
-        };
-      });
-      return copies.length;
-    },
 
     openSessionEphemeral: (sessionId, projectId) =>
       set((s) => {

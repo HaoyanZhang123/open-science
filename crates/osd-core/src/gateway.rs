@@ -898,9 +898,12 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             }
             Principal::Token => respond_json(stream, 400, "{\"error\":\"not signed in with an account\"}"),
         },
-        // The desktop window's Screens. A token client mirrors them (polling
-        // with `since`, answered 204 while nothing changed); an account copies
-        // them on request.
+        // The desktop window's Screens, which a token client mirrors (polling
+        // with `since`, answered 204 while nothing changed). An account has its
+        // own Screens and no view of the window's.
+        ("GET", ["layout", "desktop"]) if matches!(who, Principal::User { .. }) => {
+            respond_json(stream, 403, "{\"error\":\"an account keeps its own layout\"}")
+        }
         ("GET", ["layout", "desktop"]) => match crate::web_accounts::read_desktop_layout(&ctx.env) {
             Some((rev, _)) if req.query_get("since").and_then(|v| v.parse::<u64>().ok()) == Some(rev) => {
                 respond(stream, 204, "application/json", b"")
@@ -2471,11 +2474,11 @@ mod tests {
         assert!(rev1 > rev0);
         assert_eq!(*seen.lock().unwrap(), vec![r#"{"groups":[2]}"#.to_string()]);
 
-        // An account may look (to copy), never write.
+        // An account neither sees nor writes the window's Screens.
         let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"finn","password":"a long password"}"#);
         let session = serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap().to_string();
         let account = format!("Bearer {session}");
-        assert_eq!(call_as(port, "GET", "/v1/layout/desktop", Some(&account), "").0, 200);
+        assert_eq!(call_as(port, "GET", "/v1/layout/desktop", Some(&account), "").0, 403);
         assert_eq!(call_as(port, "PUT", "/v1/layout/desktop", Some(&account), r#"{"groups":[3]}"#).0, 403);
         stop(&env, &state);
         std::fs::remove_dir_all(&dir).unwrap();

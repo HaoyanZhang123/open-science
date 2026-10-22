@@ -5,7 +5,7 @@
 // through `/v1/terminals/...`, which the user has to switch on in Settings. The
 // pane does not care which: it opens, writes, resizes, closes and reads output.
 import { isTauri } from "./tauri";
-import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, signedInAccount } from "./webMode";
+import { gatewayOrigin, gatewayPost, gatewayToken, isGatewayWeb, layoutSource, signedInAccount } from "./webMode";
 
 export interface TerminalOutput {
   onData: (chunk: string) => void;
@@ -59,12 +59,13 @@ const desktop: TerminalTransport = {
   },
 };
 
-/** This browser's own name for an ACCOUNT's shells. Pane ids are `p1`, `p2`…
- *  in every client, so a bare pane id would collide with a desktop terminal
- *  (which the gateway refuses an account) or with another browser's, which
- *  would then type into this one's shell. One random id per browser, kept so a
- *  reload finds its shells again. The token needs none: it shares the window's
- *  Screens, so the same pane id IS the same shell, on purpose. */
+/** This browser's own name for shells that are its own. Pane ids are `p1`,
+ *  `p2`… in every client, so a bare pane id would collide with a desktop
+ *  terminal (which the gateway refuses an account) or with another browser's,
+ *  which would then type into this one's shell. One random id per browser,
+ *  kept so a reload finds its shells again. A token client following the
+ *  window's Screens needs none: there the same pane id IS the same shell, on
+ *  purpose. */
 function clientId(): string {
   const KEY = "os_terminal_client";
   try {
@@ -84,10 +85,22 @@ function randomId(): string {
   return Array.from(bytes, (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
 }
 
-const path = (id: string, rest = "") => {
-  const wire = signedInAccount() ? `w${clientId()}-${id}` : id;
-  return `/v1/terminals/${encodeURIComponent(wire)}${rest}`;
-};
+/** Following the desktop window's Screens: its shells are this page's. */
+const sharesDesktopShells = () => !signedInAccount() && layoutSource() === "desktop";
+
+/** Each pane's shell, as named when it was opened: switching between the
+ *  window's Screens and one's own must not re-route a shell already open, or
+ *  leave one behind under a name nobody uses any more. */
+const opened = new Map<string, { wire: string; shared: boolean }>();
+
+function shellOf(id: string): { wire: string; shared: boolean } {
+  const known = opened.get(id);
+  if (known) return known;
+  const shared = sharesDesktopShells();
+  return { wire: shared ? id : `w${clientId()}-${id}`, shared };
+}
+
+const path = (id: string, rest = "") => `/v1/terminals/${encodeURIComponent(shellOf(id).wire)}${rest}`;
 const authHeader = (): Record<string, string> => {
   const token = gatewayToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -98,6 +111,8 @@ const RECONNECT_MS = 1000;
 
 const web: TerminalTransport = {
   async open(id, cwd, cols, rows) {
+    const shell = shellOf(id);
+    opened.set(id, shell);
     const res = await gatewayPost<{ created?: boolean }>(path(id), { cwd: cwd ?? null, cols, rows });
     return res?.created === true;
   },
@@ -108,12 +123,14 @@ const web: TerminalTransport = {
     await gatewayPost(path(id, "/resize"), { cols, rows });
   },
   async close(id) {
-    // With the token, shells belong to the desktop window, whose Screens this
-    // page shares: the window ends a shell when its pane leaves the shared
-    // layout. Ending it from here as well could kill one the window had just
-    // opened, from a moment when the two layouts briefly disagreed.
-    if (!signedInAccount()) return;
-    await fetch(`${gatewayOrigin()}${path(id)}`, { method: "DELETE", headers: authHeader() });
+    const shell = shellOf(id);
+    opened.delete(id);
+    // A shell shared with the desktop window is the window's: it ends it when
+    // the pane leaves the shared layout. Ending it from here as well could kill
+    // one the window had just opened, from a moment the two layouts disagreed.
+    if (shell.shared) return;
+    const url = `${gatewayOrigin()}/v1/terminals/${encodeURIComponent(shell.wire)}`;
+    await fetch(url, { method: "DELETE", headers: authHeader() });
   },
   async subscribe(id, output) {
     // fetch rather than EventSource: EventSource cannot send a header, and the
