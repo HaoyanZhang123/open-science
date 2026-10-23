@@ -831,6 +831,7 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
         }
         ("GET", ["fs", "list"]) => fs_list(stream, req, ctx),
         ("GET", ["fs", "read"]) => fs_read(stream, req, ctx),
+        ("GET", ["fs", "locate"]) => fs_locate(stream, req, ctx),
         ("POST", ["fs", "upload"]) => fs_upload(stream, req, ctx),
         ("POST", ["fs", "discard"]) => fs_discard(stream, req, ctx),
         // Trade the token for a short-lived, single-file read capability the
@@ -1374,6 +1375,21 @@ fn fs_resolve(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
     // names a file without its directory ("figure1.png" for "figures/figure1.png").
     let located = locate_under(&base, &rel).unwrap_or(rel);
     resolve_under(&base, &located)
+}
+
+/// Where a file an answer mentions really is, or `null`: the desktop's
+/// `resolve_artifact` for the web client, so a mention becomes a chip only when
+/// there is a file behind it — as on the desktop — instead of a chip whose
+/// preview then fails.
+fn fs_locate(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    let rel = req.query_get("path").unwrap_or_default();
+    match fs_base(ctx, req) {
+        Ok(base) => {
+            let found = locate_under(&base, &rel);
+            respond_json(stream, 200, &serde_json::json!({ "path": found }).to_string());
+        }
+        Err(e) => respond_json(stream, 400, &err_json(&e)),
+    }
 }
 
 fn fs_read(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
@@ -3089,6 +3105,15 @@ mod tests {
         let mut buf = String::new();
         let _ = c.read_to_string(&mut buf);
         assert!(buf.starts_with("HTTP/1.1 413"), "{buf}");
+
+        // A mention is located like on the desktop: by path, else by name in a
+        // subfolder; a file that is not there is `null`, not a broken chip.
+        let path_of = |body: &str| serde_json::from_str::<serde_json::Value>(body).unwrap()["path"].clone();
+        let (s, b) = call(port, "GET", &format!("/v1/fs/locate?path=keep.txt&dir={ses_q}"), "");
+        assert_eq!((s, path_of(&b)), (200, serde_json::json!("sub/keep.txt")));
+        let (s, b) = call(port, "GET", &format!("/v1/fs/locate?path=gone.html&dir={ses_q}"), "");
+        assert_eq!((s, path_of(&b)), (200, serde_json::Value::Null));
+        assert_eq!(call(port, "GET", &format!("/v1/fs/locate?path=a.txt&dir={outside}"), "").0, 400);
 
         // A read-only token cannot write.
         set_gateway_config(&env, &state, true, false, "read-only".into(), None, false).unwrap();

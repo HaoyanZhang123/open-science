@@ -53,20 +53,35 @@ export async function previewUrl(path: string, root?: FileRoot, dir?: string): P
 /** Resolve a file mentioned in an agent message to a real workspace-relative
  *  path. Agent prose may name a file without its directory ("index.html" for
  *  "canvas-project/index.html"); the backend finds it by basename. Returns
- *  null when no such file exists; echoes the path back in browser dev. */
-export async function resolveArtifactPath(path: string): Promise<string | null> {
-  if (!isTauri) return path;
-  const inflight = resolvedPaths.get(path);
+ *  null when no such file exists; echoes the path back in browser dev. In the
+ *  web client `dir` is the session's folder (the desktop's lookup uses its
+ *  active one). */
+export async function resolveArtifactPath(path: string, dir?: string): Promise<string | null> {
+  if (!isTauri && !isGatewayWeb) return path;
+  const key = isGatewayWeb ? `${dir ?? ""}\n${path}` : path;
+  const inflight = resolvedPaths.get(key);
   if (inflight) return inflight;
-  const lookup = (async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<string | null>("resolve_artifact", { path });
-  })();
-  resolvedPaths.set(path, lookup);
+  const lookup = isGatewayWeb
+    ? locateOnGateway(path, dir)
+    : (async () => {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return invoke<string | null>("resolve_artifact", { path });
+      })();
+  resolvedPaths.set(key, lookup);
   // A failed lookup must not be remembered as an answer — drop it so the next
   // mention can try again.
-  lookup.catch(() => resolvedPaths.delete(path));
+  lookup.catch(() => resolvedPaths.delete(key));
   return lookup;
+}
+
+async function locateOnGateway(path: string, dir?: string): Promise<string | null> {
+  const t = gatewayToken();
+  const res = await fetch(
+    `${gatewayOrigin()}/v1/fs/locate?path=${encodeURIComponent(path)}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`,
+    { headers: t ? { authorization: `Bearer ${t}` } : {} },
+  );
+  if (!res.ok) throw new Error(`locate ${res.status}`);
+  return ((await res.json()) as { path: string | null }).path;
 }
 
 /**
