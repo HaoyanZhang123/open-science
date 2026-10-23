@@ -231,5 +231,8 @@
     "newProject": "Nuevo proyecto…",
     "hintCreate": "crear",
     "hintQuick": "aquí mismo, sin preguntar"
+  },
+  "web": {
+    "manyTabs": "Abierto en {{count}} pestañas. Un navegador permite pocas conexiones a una misma dirección, así que cada pestaña de más las ralentiza todas: cierra las que no uses."
   }
 }

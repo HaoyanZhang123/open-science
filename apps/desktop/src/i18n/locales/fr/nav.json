@@ -231,5 +231,8 @@
     "newProject": "Nouveau projet…",
     "hintCreate": "créer",
     "hintQuick": "ici même, sans demander"
+  },
+  "web": {
+    "manyTabs": "Ouvert dans {{count}} onglets. Un navigateur n'autorise que peu de connexions vers une même adresse : chaque onglet de plus les ralentit tous. Fermez ceux dont vous n'avez pas besoin."
   }
 }

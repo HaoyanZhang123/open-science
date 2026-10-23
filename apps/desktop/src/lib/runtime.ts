@@ -61,6 +61,7 @@ import {
   type ToolStatus,
 } from "./tauri";
 import { isGatewayWeb, gatewayToken, gatewayOrigin, setSignedInAccount } from "./webMode";
+import { followEvents } from "./gatewayMux";
 import { activeAcpAgent } from "./acpAgents";
 import { acpTransport } from "./acpTransport";
 import { hasParkedDraft } from "./composerStash";
@@ -110,6 +111,10 @@ import { fallbackDefaultModel } from "@/components/settings/modelCatalog";
 import { listProvidersWithAvailability, ZEN_PROVIDER_ID } from "./zenModels";
 import { toast } from "@/lib/toast";
 import i18n from "@/i18n";
+
+/** Web: every event stream of this tab rides its one connection (see
+ *  gatewayMux) — a browser allows six per host, shared by all its tabs. */
+const eventStream = isGatewayWeb ? followEvents : undefined;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const URL_KEY = "ai4s.opencodeUrl";
@@ -3122,6 +3127,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         baseUrl,
         directory: directory ?? undefined,
         password: password ?? undefined,
+        eventStream,
       });
       opencodeClient = oc;
       client = oc;
@@ -3658,6 +3664,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
                       baseUrl: streamBaseUrl,
                       directory: sourceDirectory,
                       password: streamPassword,
+                      eventStream,
                     });
                     await temporaryClient.connect();
                     presentationClient = temporaryClient;
@@ -4894,6 +4901,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
         baseUrl: streamBaseUrl,
         directory: dir,
         password: streamPassword,
+        eventStream,
       });
       if (sharedEventHandler) c.onEvent(sharedEventHandler);
       streamClients.set(dir, c);
