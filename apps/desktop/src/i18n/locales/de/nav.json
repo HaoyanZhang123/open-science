@@ -226,10 +226,8 @@
   },
   "newPicker": {
     "title": "Neue Sitzung",
-    "subtitle": "Wähle das Projekt, zu dem sie gehört",
     "search": "Projekte suchen…",
     "current": "Aktuell",
-    "noProject": "In keinem Projekt",
     "newProject": "Neues Projekt…",
     "hintCreate": "erstellen",
     "hintQuick": "direkt hier, ohne Nachfrage"

@@ -595,8 +595,6 @@
       "night": "Noch wach"
     },
     "count_one": "{{count}} Sitzung",
-    "count_other": "{{count}} Sitzungen",
-    "countDefault_one": "{{count}} Sitzung ohne Projekt",
-    "countDefault_other": "{{count}} Sitzungen ohne Projekt"
+    "count_other": "{{count}} Sitzungen"
   }
 }

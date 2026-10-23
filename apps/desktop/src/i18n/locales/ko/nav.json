@@ -223,10 +223,8 @@
   },
   "newPicker": {
     "title": "새 세션",
-    "subtitle": "어느 프로젝트에 넣을지 고르세요",
     "search": "프로젝트 검색…",
     "current": "현재",
-    "noProject": "프로젝트 밖",
     "newProject": "새 프로젝트…",
     "hintCreate": "만들기",
     "hintQuick": "묻지 않고 현재 프로젝트에 만들기"

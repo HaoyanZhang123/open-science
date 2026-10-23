@@ -582,7 +582,6 @@
       "evening": "こんばんは",
       "night": "夜更かしですね"
     },
-    "count_other": "{{count}} 件のセッション",
-    "countDefault_other": "プロジェクト外のセッション {{count}} 件"
+    "count_other": "{{count}} 件のセッション"
   }
 }

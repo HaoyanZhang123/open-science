@@ -226,10 +226,8 @@
   },
   "newPicker": {
     "title": "Nueva sesión",
-    "subtitle": "Elige el proyecto al que pertenece",
     "search": "Buscar proyectos…",
     "current": "Actual",
-    "noProject": "Fuera de un proyecto",
     "newProject": "Nuevo proyecto…",
     "hintCreate": "crear",
     "hintQuick": "aquí mismo, sin preguntar"

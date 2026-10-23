@@ -226,10 +226,8 @@
   },
   "newPicker": {
     "title": "New session",
-    "subtitle": "Choose the project it belongs to",
     "search": "Search projects…",
     "current": "Current",
-    "noProject": "In no project",
     "newProject": "New project…",
     "hintCreate": "create",
     "hintQuick": "new here, without asking"

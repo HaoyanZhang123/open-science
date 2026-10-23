@@ -595,8 +595,6 @@
       "night": "Working late"
     },
     "count_one": "{{count}} session",
-    "count_other": "{{count}} sessions",
-    "countDefault_one": "{{count}} session in no project",
-    "countDefault_other": "{{count}} sessions in no project"
+    "count_other": "{{count}} sessions"
   }
 }

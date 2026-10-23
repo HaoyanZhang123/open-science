@@ -595,8 +595,6 @@
       "night": "Encore debout"
     },
     "count_one": "{{count}} session",
-    "count_other": "{{count}} sessions",
-    "countDefault_one": "{{count}} session hors projet",
-    "countDefault_other": "{{count}} sessions hors projet"
+    "count_other": "{{count}} sessions"
   }
 }

@@ -223,10 +223,8 @@
   },
   "newPicker": {
     "title": "新しいセッション",
-    "subtitle": "どのプロジェクトに入れるか選んでください",
     "search": "プロジェクトを検索…",
     "current": "現在",
-    "noProject": "プロジェクト外",
     "newProject": "新しいプロジェクト…",
     "hintCreate": "作成",
     "hintQuick": "確認なしで現在のプロジェクトに作成"

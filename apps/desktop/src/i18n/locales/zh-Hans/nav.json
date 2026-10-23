@@ -223,10 +223,8 @@
   },
   "newPicker": {
     "title": "新建会话",
-    "subtitle": "选择它属于哪个项目",
     "search": "搜索项目…",
     "current": "当前",
-    "noProject": "不属于任何项目",
     "newProject": "新建项目…",
     "hintCreate": "新建",
     "hintQuick": "直接在当前项目新建"
