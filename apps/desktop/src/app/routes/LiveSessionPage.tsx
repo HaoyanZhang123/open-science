@@ -5,11 +5,9 @@ import { findLeaf, leaves, recentScreens, useLayoutStore } from "@/lib/layout";
 import { projectIdForGroup } from "@/lib/projectScope";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { cn } from "@/lib/cn";
-import { SessionView } from "@/components/session/SessionView";
-import { PaneTree } from "@/components/session/PaneTree";
+import { Leaf, PaneTree } from "@/components/session/PaneTree";
 import { GroupTabs } from "@/components/session/GroupTabs";
 import { EmptyGroup } from "@/components/session/EmptyGroup";
-import { PresentedArtifactPane } from "@/components/session/PresentedArtifactPane";
 
 /** How many screens are kept alive at once (the active one plus the last nine
  *  visited) — enough that a working set of screens is always instant to switch
@@ -257,21 +255,9 @@ export function LiveSessionPage() {
       <div className="flex h-full min-w-0 flex-col">
         <GroupTabs />
         <div className="min-h-0 flex-1">
-          {focusedLeaf ? (
-            focusedLeaf.artifact && focusedLeaf.sessionId ? (
-              <PresentedArtifactPane
-                artifact={focusedLeaf.artifact}
-                leafId={focusedLeaf.id}
-                sessionId={focusedLeaf.sessionId}
-                onClose={() => useLayoutStore.getState().closePane(focusedLeaf.id)}
-              />
-            ) : (
-              // The Screen bar hosts the sidebar button here, so the pane does not.
-              <SessionView sessionId={focusedLeaf.sessionId} leafId={focusedLeaf.id} focused chromeAsTitlebar={false} />
-            )
-          ) : (
-            <EmptyGroup />
-          )}
+          {/* The same pane as on the desktop, so a terminal or the file tree
+              shows as itself, not as a conversation. */}
+          {focusedLeaf ? <Leaf leaf={focusedLeaf} zoom={1} focused active laidOut solo /> : <EmptyGroup />}
         </div>
       </div>
     );
