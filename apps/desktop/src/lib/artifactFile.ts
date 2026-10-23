@@ -190,6 +190,46 @@ export async function listDir(rel: string, root?: FileRoot, dir?: string): Promi
   return invoke<DirEntry[]>("list_dir", { rel, root });
 }
 
+/** Largest file the gateway accepts as an upload (its `MAX_UPLOAD`). */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Gateway POST carrying the token; throws with the gateway's own reason
+ *  (read-only token, folder outside the workspace, too large). */
+async function gatewayFsPost(path: string, body?: Blob): Promise<Response> {
+  const t = gatewayToken();
+  const res = await fetch(`${gatewayOrigin()}${path}`, {
+    method: "POST",
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    body,
+  });
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((j: { error?: string }) => j.error)
+      .catch(() => null);
+    throw new Error(detail ?? `HTTP ${res.status}`);
+  }
+  return res;
+}
+
+/** Web client: put a file the composer was given (paste / drop / picker) at the
+ *  root of the session folder `dir` (the host's active one when omitted), under
+ *  a free name — where the desktop copies one. Returns the name written. */
+export async function uploadToWorkspace(name: string, data: Blob, dir?: string): Promise<string> {
+  if (data.size > MAX_UPLOAD_BYTES) {
+    throw new Error(`${name}: larger than ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`);
+  }
+  const query = `name=${encodeURIComponent(name)}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`;
+  const res = await gatewayFsPost(`/v1/fs/upload?${query}`, data);
+  return ((await res.json()) as { name: string }).name;
+}
+
+/** Web client: delete an upload whose chip was removed before sending. */
+export async function discardUpload(name: string, dir?: string): Promise<void> {
+  const query = `name=${encodeURIComponent(name)}${dir ? `&dir=${encodeURIComponent(dir)}` : ""}`;
+  await gatewayFsPost(`/v1/fs/discard?${query}`);
+}
+
 /** Write text to a root-relative path (desktop only; throws in browser). */
 export async function writeWorkspaceFile(
   path: string,

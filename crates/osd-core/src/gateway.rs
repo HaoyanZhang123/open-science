@@ -209,7 +209,14 @@ fn redeem_verify(ctx: &Ctx, full: &Path) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .canonicalize()
         .map_err(|e| e.to_string())?;
-    if !canon.starts_with(&base) && !crate::project::is_inside_registered_project(&ctx.env, &canon) {
+    // The same folders `fs_base` issues tickets in: the base folder, the host's
+    // active workspace (which may sit elsewhere, e.g. `osd server --workspace`),
+    // and registered projects.
+    let active = workspace_dir(&ctx.env).ok().and_then(|p| p.canonicalize().ok());
+    if !canon.starts_with(&base)
+        && !active.is_some_and(|a| canon.starts_with(a))
+        && !crate::project::is_inside_registered_project(&ctx.env, &canon)
+    {
         return Err("outside the workspace".into());
     }
     Ok(canon)
@@ -496,6 +503,18 @@ pub fn shutdown(env: &Env, state: &GatewayState) {
 
 // ---- request handling -------------------------------------------------------
 
+/// Largest body any request may carry. Everything but an upload is small JSON.
+const MAX_BODY: usize = 8 * 1024 * 1024;
+/// Largest file the web client may upload into a session folder. The body is
+/// held in memory while it is written, so this is a memory bound too; the
+/// client checks it first and says so, this is the backstop.
+pub const MAX_UPLOAD: usize = 50 * 1024 * 1024;
+
+enum ParseError {
+    Bad,
+    TooLarge,
+}
+
 struct Request {
     method: String,
     path: String,
@@ -505,7 +524,11 @@ struct Request {
 }
 
 impl Request {
-    fn parse(stream: &TcpStream) -> Option<Request> {
+    fn parse(stream: &TcpStream) -> Result<Request, ParseError> {
+        Self::parse_inner(stream).unwrap_or(Err(ParseError::Bad))
+    }
+
+    fn parse_inner(stream: &TcpStream) -> Option<Result<Request, ParseError>> {
         let mut reader = BufReader::new(stream.try_clone().ok()?);
         let mut line = String::new();
         reader.read_line(&mut line).ok()?;
@@ -536,15 +559,16 @@ impl Request {
                 headers.push((k, v));
             }
         }
-        // Guard against an oversized body claim (nothing here needs > 8 MiB).
-        if content_length > 8 * 1024 * 1024 {
-            return None;
+        // Guard against an oversized body claim; only an upload may be large.
+        let limit = if path == "/v1/fs/upload" { MAX_UPLOAD } else { MAX_BODY };
+        if content_length > limit {
+            return Some(Err(ParseError::TooLarge));
         }
         let mut body = vec![0u8; content_length];
         if content_length > 0 {
             reader.read_exact(&mut body).ok()?;
         }
-        Some(Request { method, path, query, headers, body })
+        Some(Ok(Request { method, path, query, headers, body }))
     }
 
     fn header(&self, k: &str) -> Option<&str> {
@@ -558,9 +582,13 @@ impl Request {
 
 fn handle(mut stream: TcpStream, ctx: Arc<Ctx>) {
     let req = match Request::parse(&stream) {
-        Some(r) => r,
-        None => {
+        Ok(r) => r,
+        Err(ParseError::Bad) => {
             respond_json(&mut stream, 400, "{\"error\":\"bad request\"}");
+            return;
+        }
+        Err(ParseError::TooLarge) => {
+            respond_json(&mut stream, 413, "{\"error\":\"file is too large\"}");
             return;
         }
     };
@@ -797,6 +825,8 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
         }
         ("GET", ["fs", "list"]) => fs_list(stream, req, ctx),
         ("GET", ["fs", "read"]) => fs_read(stream, req, ctx),
+        ("POST", ["fs", "upload"]) => fs_upload(stream, req, ctx),
+        ("POST", ["fs", "discard"]) => fs_discard(stream, req, ctx),
         // Trade the token for a short-lived, single-file read capability the
         // client can safely put in an <iframe>/<img> src. A GET (not a POST) so
         // a read-only token can still preview files.
@@ -1345,6 +1375,40 @@ fn fs_read(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
     }
 }
 
+/// The folder a composer attachment goes to: the session's `dir`, or the
+/// host's active workspace. Never the `base` folder — an attachment belongs to
+/// one session, like the desktop's copy into its workspace root.
+fn attach_dir(ctx: &Ctx, req: &Request) -> Result<PathBuf, String> {
+    if req.query_get("root").is_some() {
+        return Err("attachments go to a session folder".into());
+    }
+    fs_base(ctx, req)
+}
+
+/// The web composer's paste / drop / "add files": the raw body becomes a file
+/// at the root of the session folder, deduplicated, exactly where the desktop
+/// copies one. Answers with the name written, which the chip and the prompt use.
+fn fs_upload(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    let name = req.query_get("name").unwrap_or_default();
+    match attach_dir(ctx, req)
+        .and_then(|dir| crate::artifact_file::write_new_file(&dir, &name, &req.body))
+    {
+        Ok(written) => respond_json(stream, 200, &serde_json::json!({ "name": written }).to_string()),
+        Err(e) => respond_json(stream, 400, &err_json(&e)),
+    }
+}
+
+/// Removing an uploaded chip before sending deletes the upload. Root-level
+/// names only (see `discard_file_in`), so it can never reach a file that was
+/// in the folder before.
+fn fs_discard(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
+    let name = req.query_get("name").unwrap_or_default();
+    match attach_dir(ctx, req).and_then(|dir| crate::artifact_file::discard_file_in(&dir, &name)) {
+        Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
+        Err(e) => respond_json(stream, 400, &err_json(&e)),
+    }
+}
+
 /// Send a resolved workspace file. HTML gets `CSP: sandbox` so a page the agent
 /// wrote lands in an OPAQUE origin however it is loaded — including a tab opened
 /// directly on it, which no `<iframe sandbox>` attribute can cover — and so can
@@ -1804,6 +1868,7 @@ fn reason(status: u16) -> &'static str {
         403 => "Forbidden",
         404 => "Not Found",
         409 => "Conflict",
+        413 => "Payload Too Large",
         500 => "Internal Server Error",
         502 => "Bad Gateway",
         503 => "Service Unavailable",
@@ -2653,6 +2718,26 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    /// The host's active folder may be any folder (a picked one, or
+    /// `osd server --workspace`); `fs_base` issues tickets there, so redemption
+    /// must honour them — else every web preview and image send there is a 403.
+    #[test]
+    #[cfg(unix)]
+    fn a_ticket_for_a_file_in_an_active_folder_outside_the_base_redeems() {
+        let (ctx, root) = ctx_with_base("active");
+        let picked = root.join("picked-folder");
+        std::fs::create_dir_all(&picked).unwrap();
+        let file = picked.join("shot.png");
+        std::fs::write(&file, b"png").unwrap();
+        assert!(redeem_verify(&ctx, &file).is_err(), "not active yet");
+        crate::runtime::set_workspace(&ctx.env, picked.to_string_lossy().to_string()).unwrap();
+        assert!(redeem_verify(&ctx, &file).is_ok());
+        let sibling = root.join("secret.txt");
+        std::fs::write(&sibling, b"no").unwrap();
+        assert!(redeem_verify(&ctx, &sibling).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     /// An in-place project lives OUTSIDE the base workspace, and `fs_base`
     /// issues tickets for files in it — so redemption must accept any file under
     /// that project's root, not only the root itself.
@@ -2677,5 +2762,74 @@ mod tests {
         std::fs::write(&sibling, b"no").unwrap();
         assert!(redeem_verify(&ctx, &sibling).is_err());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The web composer's attachments: an upload lands at the root of the
+    /// session folder under a free name, a removed chip deletes only what was
+    /// uploaded, and nothing can write outside a session folder.
+    #[test]
+    #[cfg(unix)]
+    fn web_uploads_land_in_the_session_folder_and_nowhere_else() {
+        let (env, dir) = env_with_recorded_port("upload", None);
+        std::fs::create_dir_all(dir.join("runtime")).unwrap();
+        let base = dir.join("base");
+        std::fs::create_dir_all(base.join("ses1")).unwrap();
+        crate::runtime::set_workspace_base(&env, base.to_string_lossy().to_string()).unwrap();
+        let ses = base.join("ses1").canonicalize().unwrap();
+        let ses_q = enc(&ses.to_string_lossy());
+        let state = GatewayState::default();
+        let mut p = read_persisted(&env);
+        p.enabled = true;
+        write_persisted(&env, &p).unwrap();
+        let port = start_at(&env, &state, &p, None).unwrap();
+        let name_of = |body: &str| {
+            serde_json::from_str::<serde_json::Value>(body).unwrap()["name"].as_str().unwrap().to_string()
+        };
+
+        let up = format!("/v1/fs/upload?name=fig.png&dir={ses_q}");
+        let (s1, b1) = call(port, "POST", &up, "png-bytes");
+        assert_eq!((s1, name_of(&b1)), (200, "fig.png".to_string()));
+        let (s2, b2) = call(port, "POST", &up, "second");
+        assert_eq!((s2, name_of(&b2)), (200, "fig-1.png".to_string()), "a second upload must not overwrite");
+        assert_eq!(std::fs::read(ses.join("fig.png")).unwrap(), b"png-bytes");
+
+        // A name carrying a path keeps only its file name: it cannot climb out.
+        let (s, b) = call(port, "POST", &format!("/v1/fs/upload?name=..%2F..%2Fescape.txt&dir={ses_q}"), "x");
+        assert_eq!((s, name_of(&b)), (200, "escape.txt".to_string()));
+        assert!(!dir.join("escape.txt").exists() && !base.join("escape.txt").exists());
+
+        // Only session folders: not the base folder, not anywhere else.
+        assert_eq!(call(port, "POST", "/v1/fs/upload?name=a.txt&root=base", "x").0, 400);
+        let outside = enc(&dir.to_string_lossy());
+        assert_eq!(call(port, "POST", &format!("/v1/fs/upload?name=a.txt&dir={outside}"), "x").0, 400);
+        assert!(!dir.join("a.txt").exists());
+
+        // Removing a chip deletes the upload; a nested name is refused.
+        std::fs::create_dir_all(ses.join("sub")).unwrap();
+        std::fs::write(ses.join("sub/keep.txt"), b"mine").unwrap();
+        assert_eq!(call(port, "POST", &format!("/v1/fs/discard?name=fig-1.png&dir={ses_q}"), "").0, 200);
+        assert!(!ses.join("fig-1.png").exists() && ses.join("fig.png").exists());
+        assert_eq!(call(port, "POST", &format!("/v1/fs/discard?name=sub%2Fkeep.txt&dir={ses_q}"), "").0, 400);
+        assert!(ses.join("sub/keep.txt").exists());
+
+        // Too large is refused before the body is read.
+        let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let head = format!(
+            "POST {up} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer t\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            MAX_UPLOAD + 1
+        );
+        c.write_all(head.as_bytes()).unwrap();
+        let mut buf = String::new();
+        let _ = c.read_to_string(&mut buf);
+        assert!(buf.starts_with("HTTP/1.1 413"), "{buf}");
+
+        // A read-only token cannot write.
+        set_gateway_config(&env, &state, true, false, "read-only".into(), None, false).unwrap();
+        assert_eq!(call(port, "POST", &up, "x").0, 403);
+        assert_eq!(call(port, "POST", &format!("/v1/fs/discard?name=fig.png&dir={ses_q}"), "").0, 403);
+        assert!(ses.join("fig.png").exists());
+
+        stop(&env, &state);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

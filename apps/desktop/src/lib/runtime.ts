@@ -4455,7 +4455,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       // echo and the spinner must appear on click, not after a multi-MB read.
       (sid) =>
         withRetry(async () => {
-          const { parts, dropped } = await imageAttachmentParts(attachments ?? []);
+          // The web client reads attachments from the session's own folder.
+          const g = get();
+          const dir = g.sessions.find((x) => x.id === sid)?.directory ?? g.workspace ?? undefined;
+          const { parts, dropped } = await imageAttachmentParts(attachments ?? [], dir);
           // A picture that could not be read is NOT sent, and the prompt still
           // names the file — so without this the model answers about a figure
           // it never saw, and nothing anywhere says so.
