@@ -12,6 +12,7 @@ import {
 import { leaves, type PaneLeaf, type PaneNode } from "@/lib/layout";
 import { useRuntimeStore } from "@/lib/runtime";
 import { cn } from "@/lib/cn";
+import { useTransientScrollbar } from "@/lib/transientScrollbar";
 import { usePaneNames } from "./GroupTabs";
 
 function paneIcon(leaf: PaneLeaf): LucideIcon {
@@ -52,6 +53,7 @@ export function PaneSwitcher({
   const { describe, sessionTitle } = usePaneNames();
   const running = useRuntimeStore((s) => s.runningSessions);
   const panes = tree ? leaves(tree) : [];
+  const rowRef = useTransientScrollbar();
 
   // The pane on display is always in view, as in the Screen bar.
   useEffect(() => {
@@ -73,9 +75,10 @@ export function PaneSwitcher({
 
   return (
     <div
+      ref={rowRef}
       role="tablist"
       aria-label={t("group.panes")}
-      className="flex h-9 shrink-0 select-none items-stretch gap-1 overflow-x-auto border-b border-faint px-2"
+      className="flex h-9 shrink-0 select-none items-stretch gap-1 scrollbar-transient overflow-x-auto border-b border-faint px-2"
     >
       {panes.map((leaf) => {
         const active = leaf.id === focusedLeafId;

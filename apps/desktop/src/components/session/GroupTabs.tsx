@@ -37,6 +37,7 @@ import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useTransientScrollbar } from "@/lib/transientScrollbar";
 import { ContextMenu, ContextMenuItem } from "@/components/ui/ContextMenu";
 import { InlineName } from "@/components/ui/InlineName";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -231,7 +232,11 @@ function ProjectSwitcher() {
         <button
           aria-label={t("group.projectMenu")}
           title={t("group.projectMenu")}
-          className="mr-1 flex h-7 max-w-[180px] shrink-0 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-text hover:bg-surface-2"
+          // A phone gives the width to the Screens: icon and caret, no gaps.
+          className={cn(
+            "flex h-7 max-w-[180px] shrink-0 items-center rounded-md text-[12px] font-medium text-text hover:bg-surface-2",
+            compact ? "gap-0.5 px-1" : "mr-1 gap-1 px-2",
+          )}
         >
           <Folder size={13} className="shrink-0 text-accent" />
           {/* A phone keeps the width for the Screens; the menu names the project. */}
@@ -295,7 +300,10 @@ function LayoutSourceSwitcher() {
         <button
           aria-label={t("group.sourceMenu")}
           title={t("group.sourceMenu")}
-          className="mr-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-muted hover:bg-surface-2 hover:text-text"
+          className={cn(
+            "flex h-7 shrink-0 items-center rounded-md text-[12px] text-muted hover:bg-surface-2 hover:text-text",
+            compact ? "gap-0.5 px-1" : "mr-1 gap-1 px-2",
+          )}
         >
           <Icon size={13} className="shrink-0" />
           {!compact && (
@@ -397,6 +405,8 @@ export function GroupTabs() {
   const overlayTitlebar = useOverlayTitlebar();
   const isMac = navigator.userAgent.includes("Mac");
 
+  const compact = useIsMobile();
+  const stripRef = useTransientScrollbar();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
   // The Screen on display is always in view: on a narrow bar the strip
@@ -444,7 +454,8 @@ export function GroupTabs() {
         <LayoutSourceSwitcher />
         <div
           data-tauri-drag-region={overlayTitlebar || undefined}
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          ref={stripRef}
+          className={cn("flex min-w-0 flex-1 items-center gap-1 overflow-x-auto", compact && "scrollbar-transient")}
         >
           {groups.map((g, i) => {
             const active = g.id === activeGroupId;

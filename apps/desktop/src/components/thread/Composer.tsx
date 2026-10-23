@@ -455,6 +455,23 @@ export function Composer({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
   }, [value]);
+  // …and again when its width changes. Measured while its Screen was hidden or
+  // not laid out yet, the box is a sliver: even the placeholder wraps a word a
+  // line and the height lands on the cap — and nothing re-measured it once the
+  // box had its width back, so an empty composer could stay 160px tall.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const submit = () => {
     if (disabled) return;
