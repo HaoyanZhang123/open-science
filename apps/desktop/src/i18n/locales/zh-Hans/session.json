@@ -35,7 +35,8 @@
     "splitRightShort": "向右分屏",
     "splitDownShort": "向下分屏",
     "defaultProject": "默认",
-    "projectMenu": "切换项目"
+    "projectMenu": "切换项目",
+    "panes": "此屏幕中的面板"
   },
   "composer": {
     "placeholder": {

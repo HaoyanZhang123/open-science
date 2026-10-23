@@ -35,7 +35,8 @@
     "splitRightShort": "오른쪽으로 분할",
     "splitDownShort": "아래로 분할",
     "defaultProject": "기본",
-    "projectMenu": "프로젝트 전환"
+    "projectMenu": "프로젝트 전환",
+    "panes": "이 화면의 창"
   },
   "composer": {
     "placeholder": {

@@ -35,7 +35,8 @@
     "splitRightShort": "Rechts teilen",
     "splitDownShort": "Unten teilen",
     "defaultProject": "Standard",
-    "projectMenu": "Projekt wechseln"
+    "projectMenu": "Projekt wechseln",
+    "panes": "Bereiche in diesem Screen"
   },
   "composer": {
     "placeholder": {

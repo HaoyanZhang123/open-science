@@ -348,6 +348,38 @@ function closeNeedsConfirm(group: LayoutGroup, ephemeralGroupId: string | null):
   return group.id !== ephemeralGroupId;
 }
 
+/**
+ * What a pane is called wherever it is named on its own: in the Screen bar
+ * (a Screen is named after its first pane) and in the phone's pane switcher.
+ */
+export function usePaneNames() {
+  const { t } = useTranslation(["session", "nav"]);
+  const sessions = useRuntimeStore((s) => s.sessions);
+  /** A conversation's Screen is named after the conversation — the first few
+   *  words of its title, once the runtime has generated one. */
+  const sessionTitle = (sessionId: string): string | null => {
+    const title = sessions.find((x) => x.id === sessionId)?.title;
+    return title && !isPlaceholderTitle(title) ? shortTitle(title) : null;
+  };
+  /** What to call a Screen that holds a surface rather than a conversation.
+   *  A file keeps its own name — that is the most useful thing a tab can say —
+   *  and the fixed surfaces use the name they are known by elsewhere. */
+  const describe = (content: PaneContent): string | null => {
+    switch (content.kind) {
+      case "terminal":
+        // The name the user gave it, when they gave it one: a Screen holding
+        // the "build" terminal should say so in the strip.
+        return content.name || t("session:terminal.title");
+      case "files":
+        return t("nav:items.files");
+      case "notebook":
+      case "editor":
+        return content.path.split("/").pop() || null;
+    }
+  };
+  return { describe, sessionTitle };
+}
+
 export function GroupTabs() {
   const { t } = useTranslation(["session", "nav"]);
   const allGroups = useLayoutStore((s) => s.groups);
@@ -375,31 +407,8 @@ export function GroupTabs() {
       .querySelector(`[data-group-tab="${CSS.escape(activeGroupId)}"]`)
       ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeGroupId]);
-  const sessions = useRuntimeStore((s) => s.sessions);
+  const { describe, sessionTitle } = usePaneNames();
   const fallback = (n: number) => t("group.defaultName", { n });
-  /** A conversation's Screen is named after the conversation — the first few
-   *  words of its title, once the runtime has generated one. */
-  const sessionTitle = (sessionId: string): string | null => {
-    const title = sessions.find((x) => x.id === sessionId)?.title;
-    return title && !isPlaceholderTitle(title) ? shortTitle(title) : null;
-  };
-  /** What to call a Screen that holds a surface rather than a conversation.
-   *  A file keeps its own name — that is the most useful thing a tab can say —
-   *  and the fixed surfaces use the name they are known by elsewhere. */
-  const describe = (content: PaneContent): string | null => {
-    switch (content.kind) {
-      case "terminal":
-        // The name the user gave it, when they gave it one: a Screen holding
-        // the "build" terminal should say so in the strip.
-        return content.name || t("session:terminal.title");
-      case "files":
-        return t("nav:items.files");
-      case "notebook":
-      case "editor":
-        return content.path.split("/").pop() || null;
-    }
-  };
-
 
   return (
     <>

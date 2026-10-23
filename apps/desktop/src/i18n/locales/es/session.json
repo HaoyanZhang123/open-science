@@ -35,7 +35,8 @@
     "splitRightShort": "Dividir a la derecha",
     "splitDownShort": "Dividir abajo",
     "defaultProject": "Predeterminado",
-    "projectMenu": "Cambiar de proyecto"
+    "projectMenu": "Cambiar de proyecto",
+    "panes": "Paneles de esta pantalla"
   },
   "composer": {
     "placeholder": {

@@ -35,7 +35,8 @@
     "splitRightShort": "Split right",
     "splitDownShort": "Split down",
     "defaultProject": "Default",
-    "projectMenu": "Switch project"
+    "projectMenu": "Switch project",
+    "panes": "Panes in this Screen"
   },
   "composer": {
     "placeholder": {

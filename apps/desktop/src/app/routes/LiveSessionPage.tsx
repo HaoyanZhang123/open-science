@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { Leaf, PaneTree } from "@/components/session/PaneTree";
 import { GroupTabs } from "@/components/session/GroupTabs";
 import { EmptyGroup } from "@/components/session/EmptyGroup";
+import { PaneSwitcher } from "@/components/session/PaneSwitcher";
 
 /** How many screens are kept alive at once (the active one plus the last nine
  *  visited) — enough that a working set of screens is always instant to switch
@@ -68,6 +69,7 @@ export function LiveSessionPage() {
   const activeGroupId = useLayoutStore((s) => s.activeGroupId);
   const focusedLeafId = useLayoutStore((s) => s.focusedLeafId);
   const pruneSessions = useLayoutStore((s) => s.pruneSessions);
+  const focusLeaf = useLayoutStore((s) => s.focusLeaf);
   const focusedLeaf = tree && focusedLeafId ? findLeaf(tree, focusedLeafId) : null;
   const focusedSid = focusedLeaf?.sessionId ?? null;
 
@@ -247,17 +249,19 @@ export function LiveSessionPage() {
   const mounted = useMemo(() => new Set(live), [live]);
   /** Kept laid out and painted, so revealing one is a compositor change. */
   const warm = useMemo(() => new Set(live.slice(0, WARM_SCREENS)), [live]);
-  // Phone: no tiling — the Screen bar, then the active Screen's focused pane
-  // alone, or the onboarding if the Screen is empty. The Screens are the same
-  // ones as anywhere else; only one pane of each fits.
+  // Phone: no tiling — the Screen bar, the Screen's panes to choose between
+  // (when it has more than one), then the chosen pane alone, or the onboarding
+  // if the Screen is empty. The Screens are the same ones as anywhere else;
+  // only one pane of each fits.
   if (singlePane) {
     return (
       <div className="flex h-full min-w-0 flex-col">
         <GroupTabs />
+        <PaneSwitcher tree={tree} focusedLeafId={focusedLeafId} onFocus={focusLeaf} />
         <div className="min-h-0 flex-1">
           {/* The same pane as on the desktop, so a terminal or the file tree
               shows as itself, not as a conversation. */}
-          {focusedLeaf ? <Leaf leaf={focusedLeaf} zoom={1} focused active laidOut solo /> : <EmptyGroup />}
+          {focusedLeaf ? <Leaf key={focusedLeaf.id} leaf={focusedLeaf} zoom={1} focused active laidOut solo /> : <EmptyGroup />}
         </div>
       </div>
     );

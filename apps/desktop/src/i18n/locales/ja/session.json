@@ -35,7 +35,8 @@
     "splitRightShort": "右に分割",
     "splitDownShort": "下に分割",
     "defaultProject": "デフォルト",
-    "projectMenu": "プロジェクトを切り替え"
+    "projectMenu": "プロジェクトを切り替え",
+    "panes": "このスクリーンのペイン"
   },
   "composer": {
     "placeholder": {

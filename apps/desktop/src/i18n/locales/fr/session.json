@@ -35,7 +35,8 @@
     "splitRightShort": "Diviser à droite",
     "splitDownShort": "Diviser en bas",
     "defaultProject": "Par défaut",
-    "projectMenu": "Changer de projet"
+    "projectMenu": "Changer de projet",
+    "panes": "Volets de cet écran"
   },
   "composer": {
     "placeholder": {
