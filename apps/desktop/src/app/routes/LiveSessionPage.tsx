@@ -163,6 +163,13 @@ export function LiveSessionPage() {
   // replace) so a new conversation adds a history entry (Back works).
   useEffect(() => {
     if (!focusedSid) return;
+    // The effect above may have just moved the focus in this same commit (a
+    // link to a session other than the restored layout's): this render's
+    // value is then stale, and following it sent the address — and the link —
+    // back to the old session. The next render brings the new one.
+    const st = useLayoutStore.getState();
+    const now = st.tree && st.focusedLeafId ? findLeaf(st.tree, st.focusedLeafId)?.sessionId : null;
+    if (now !== focusedSid) return;
     const want = `/live/${focusedSid}`;
     if (location.pathname !== want) navigate(want);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,22 +249,31 @@ export function LiveSessionPage() {
   const mounted = useMemo(() => new Set(live), [live]);
   /** Kept laid out and painted, so revealing one is a compositor change. */
   const warm = useMemo(() => new Set(live.slice(0, WARM_SCREENS)), [live]);
-  // Web / phone: no tiling — show the focused pane alone (its own titlebar), or
-  // the onboarding if the group is somehow empty.
+  // Phone: no tiling — the Screen bar, then the active Screen's focused pane
+  // alone, or the onboarding if the Screen is empty. The Screens are the same
+  // ones as anywhere else; only one pane of each fits.
   if (singlePane) {
-    return focusedLeaf ? (
-      focusedLeaf.artifact && focusedLeaf.sessionId ? (
-        <PresentedArtifactPane
-          artifact={focusedLeaf.artifact}
-          leafId={focusedLeaf.id}
-          sessionId={focusedLeaf.sessionId}
-          onClose={() => useLayoutStore.getState().closePane(focusedLeaf.id)}
-        />
-      ) : (
-        <SessionView sessionId={focusedLeaf.sessionId} leafId={focusedLeaf.id} focused chromeAsTitlebar />
-      )
-    ) : (
-      <EmptyGroup />
+    return (
+      <div className="flex h-full min-w-0 flex-col">
+        <GroupTabs />
+        <div className="min-h-0 flex-1">
+          {focusedLeaf ? (
+            focusedLeaf.artifact && focusedLeaf.sessionId ? (
+              <PresentedArtifactPane
+                artifact={focusedLeaf.artifact}
+                leafId={focusedLeaf.id}
+                sessionId={focusedLeaf.sessionId}
+                onClose={() => useLayoutStore.getState().closePane(focusedLeaf.id)}
+              />
+            ) : (
+              // The Screen bar hosts the sidebar button here, so the pane does not.
+              <SessionView sessionId={focusedLeaf.sessionId} leafId={focusedLeaf.id} focused chromeAsTitlebar={false} />
+            )
+          ) : (
+            <EmptyGroup />
+          )}
+        </div>
+      </div>
     );
   }
   // Desktop: the group tab strip owns the window titlebar; below it, the pane

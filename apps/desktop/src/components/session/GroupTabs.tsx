@@ -36,6 +36,7 @@ import { detectCliAgents, selectCliAgent, type CliAgent } from "@/lib/cliAgents"
 import { useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { ContextMenu, ContextMenuItem } from "@/components/ui/ContextMenu";
 import { InlineName } from "@/components/ui/InlineName";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -212,6 +213,7 @@ export function useActiveProjectPath(): string | undefined {
  */
 function ProjectSwitcher() {
   const { t } = useTranslation("session");
+  const compact = useIsMobile();
   const projectId = useLayoutStore(selectActiveProjectId);
   const setActiveProject = useLayoutStore((s) => s.setActiveProject);
   const projects = useRuntimeStore((s) => s.projects);
@@ -232,7 +234,8 @@ function ProjectSwitcher() {
           className="mr-1 flex h-7 max-w-[180px] shrink-0 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-text hover:bg-surface-2"
         >
           <Folder size={13} className="shrink-0 text-accent" />
-          <span className="truncate">{current}</span>
+          {/* A phone keeps the width for the Screens; the menu names the project. */}
+          {!compact && <span className="truncate">{current}</span>}
           <ChevronDown size={12} className="shrink-0 text-muted" />
         </button>
       </DropdownMenu.Trigger>
@@ -266,6 +269,7 @@ function ProjectSwitcher() {
  */
 function LayoutSourceSwitcher() {
   const { t } = useTranslation("session");
+  const compact = useIsMobile();
   const webUser = useRuntimeStore((s) => s.webUser);
   const [source, setSource] = useState<LayoutSource>(layoutSource);
   const [busy, setBusy] = useState(false);
@@ -294,7 +298,9 @@ function LayoutSourceSwitcher() {
           className="mr-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-muted hover:bg-surface-2 hover:text-text"
         >
           <Icon size={13} className="shrink-0" />
-          <span className="truncate">{source === "desktop" ? t("group.sourceDesktop") : t("group.sourceOwn")}</span>
+          {!compact && (
+            <span className="truncate">{source === "desktop" ? t("group.sourceDesktop") : t("group.sourceOwn")}</span>
+          )}
           <ChevronDown size={12} className="shrink-0" />
         </button>
       </DropdownMenu.Trigger>
@@ -361,6 +367,14 @@ export function GroupTabs() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null);
+  // The Screen on display is always in view: on a narrow bar the strip
+  // scrolls, and a switch from elsewhere (a sidebar click, a link) can land on
+  // a tab scrolled out of sight.
+  useEffect(() => {
+    document
+      .querySelector(`[data-group-tab="${CSS.escape(activeGroupId)}"]`)
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeGroupId]);
   const sessions = useRuntimeStore((s) => s.sessions);
   const fallback = (n: number) => t("group.defaultName", { n });
   /** A conversation's Screen is named after the conversation — the first few
