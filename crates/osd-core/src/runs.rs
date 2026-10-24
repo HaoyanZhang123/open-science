@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::env::Env;
+use crate::ledger::{append_jsonl, lock_ledger, LedgerGuard};
 use crate::provenance::{content_hash, EnvInfo};
 use crate::runtime::workspace_dir;
 
@@ -247,20 +248,9 @@ fn write_log(root: &Path, log: &str) -> Option<String> {
     Some(hash)
 }
 
-fn append_run(root: &Path, record: &RunRecord) -> Result<(), String> {
-    let file = runs_file(root);
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("runs dir failed: {e}"))?;
-    }
+fn append_run(guard: &LedgerGuard, root: &Path, record: &RunRecord) -> Result<(), String> {
     let line = serde_json::to_string(record).map_err(|e| e.to_string())?;
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&file)
-        .map_err(|e| format!("runs open failed: {e}"))?;
-    writeln!(f, "{line}").map_err(|e| format!("runs write failed: {e}"))?;
-    Ok(())
+    append_jsonl(guard, &runs_file(root), format!("{line}\n").as_bytes(), "runs")
 }
 
 /// Read a content-addressed run log (`.openscience/logs/<hash>.txt`). `hash` is
@@ -308,14 +298,10 @@ pub fn record_run_inner(
     model: Option<String>,
     env: Option<EnvInfo>,
 ) -> Result<RunRecord, String> {
-    // Serialize the read/append/link sequence across the gateway and desktop
-    // callers. Both JSONL files are append-only, but retries of the same run
-    // must reuse its stored record and fill only missing provenance links.
-    static RECORD_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    let _record_guard = RECORD_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .map_err(|_| "run record lock poisoned")?;
+    // Hold the ledger lock across deduplication, the run append and the output
+    // links: a retry of the same run, from any process, must reuse its stored
+    // record and fill only missing provenance links.
+    let guard = lock_ledger(root)?;
 
     let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let start_ms = started_ms.unwrap_or(now_ms);
@@ -364,7 +350,7 @@ pub fn record_run_inner(
             log_hash,
             env: env.clone(),
         };
-        append_run(root, &record)?;
+        append_run(&guard, root, &record)?;
         record
     };
 
@@ -376,7 +362,8 @@ pub fn record_run_inner(
     // incomplete and must not be reported as a successful record operation.
     if record.status == "ok" && !record.outputs.is_empty() {
         let paths: Vec<String> = record.outputs.iter().map(|o| o.path.clone()).collect();
-        crate::provenance::link_run_outputs(
+        crate::provenance::link_run_outputs_locked(
+            &guard,
             root,
             &paths,
             record.session_id.clone(),
@@ -409,6 +396,104 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// Child half of the cross-process tests: records one fixed run, only when
+    /// a parent test spawns this binary with OSD_RUN_LEDGER_TEST_ROOT set.
+    #[test]
+    fn child_record_run() {
+        let Ok(root) = std::env::var("OSD_RUN_LEDGER_TEST_ROOT") else {
+            return;
+        };
+        let root = Path::new(&root);
+        let child = std::env::var("OSD_RUN_LEDGER_TEST_CHILD").unwrap();
+        let now_ms: u64 = std::env::var("OSD_RUN_LEDGER_TEST_NOW").unwrap().parse().unwrap();
+        std::fs::write(root.join(format!(".openscience/child-{child}-ready")), "").unwrap();
+        record_run_inner(root, "echo synthetic", None, Some(now_ms - 2_000), Some(now_ms + 2_000), "ok", None, None, None, None)
+            .unwrap();
+    }
+
+    fn spawn_run_child(root: &Path, child: &str, now_ms: u64) -> std::process::Child {
+        crate::ledger::test_support::spawn_test(
+            "runs::tests::child_record_run",
+            &[
+                ("OSD_RUN_LEDGER_TEST_ROOT", root.to_str().unwrap()),
+                ("OSD_RUN_LEDGER_TEST_CHILD", child),
+                ("OSD_RUN_LEDGER_TEST_NOW", &now_ms.to_string()),
+            ],
+        )
+    }
+
+    #[test]
+    fn separate_processes_do_not_duplicate_a_run() {
+        use crate::ledger::test_support::{assert_exits_ok, wait_for_file};
+
+        let root = temp_root("process-dedup");
+        std::fs::write(root.join("output.csv"), "value\n1\n").unwrap();
+        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let guard = lock_ledger(&root).unwrap();
+        let mut children = [spawn_run_child(&root, "0", now_ms), spawn_run_child(&root, "1", now_ms)];
+        wait_for_file(&root.join(".openscience/child-0-ready"));
+        wait_for_file(&root.join(".openscience/child-1-ready"));
+        drop(guard);
+        children.iter_mut().for_each(assert_exits_ok);
+
+        let runs = read_runs(&root);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].outputs.iter().map(|o| o.path.as_str()).collect::<Vec<_>>(), ["output.csv"]);
+        let links = crate::provenance::versions_for(&root, "output.csv").unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].run_id.as_deref(), Some(runs[0].run_id.as_str()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn authored_and_run_processes_number_one_output_in_sequence() {
+        use crate::ledger::test_support::{assert_exits_ok, spawn_test, wait_for_file};
+
+        let root = temp_root("mixed-writers");
+        std::fs::write(root.join("output.csv"), "value\n1\n").unwrap();
+        let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let guard = lock_ledger(&root).unwrap();
+        let mut authored = spawn_test(
+            "provenance::tests::child_append_record",
+            &[("OSD_LEDGER_TEST_ROOT", root.to_str().unwrap()), ("OSD_LEDGER_TEST_PATH", "output.csv")],
+        );
+        let mut run = spawn_run_child(&root, "run", now_ms);
+        wait_for_file(&root.join(".openscience/child-ready"));
+        wait_for_file(&root.join(".openscience/child-run-ready"));
+        drop(guard);
+        assert_exits_ok(&mut authored);
+        assert_exits_ok(&mut run);
+
+        let versions = crate::provenance::versions_for(&root, "output.csv").unwrap();
+        assert_eq!(versions.iter().map(|v| v.version).collect::<Vec<_>>(), [1, 2]);
+        let mut tools: Vec<_> = versions.iter().map(|v| v.tool.as_str()).collect();
+        tools.sort();
+        assert_eq!(tools, ["run", "write"]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_torn_runs_tail_does_not_block_later_runs() {
+        use std::io::Write;
+
+        let root = temp_root("torn-tail");
+        let file = root.join(".openscience/runs.jsonl");
+        record_run_inner(&root, "echo first", None, Some(100_000), Some(101_000), "ok", None, None, None, None).unwrap();
+        // A crash right before the newline: the retry still finds the run.
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes.pop();
+        std::fs::write(&file, &bytes).unwrap();
+        record_run_inner(&root, "echo first", None, Some(100_000), Some(101_000), "ok", None, None, None, None).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+        // A crash mid-record: only that record is lost.
+        std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"\n{\"runId\":").unwrap();
+        record_run_inner(&root, "echo second", None, Some(200_000), Some(201_000), "ok", None, None, None, None).unwrap();
+        let mut commands: Vec<_> = read_runs(&root).into_iter().map(|r| r.command).collect();
+        commands.sort();
+        assert_eq!(commands, ["echo first", "echo second"]);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
