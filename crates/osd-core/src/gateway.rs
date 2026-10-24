@@ -157,7 +157,16 @@ struct Shared {
     tickets: Mutex<HashMap<String, (Instant, PathBuf)>>,
     /// Open browser-tab streams (`GET /v1/mux`), by id. See `mux_open`.
     muxes: Mutex<HashMap<String, Mux>>,
+    /// When each conversation last messaged another one through `osd` (see
+    /// `agent_send_limited`).
+    agent_sends: Mutex<HashMap<String, Vec<Instant>>>,
 }
+
+/// How many messages one conversation may send to other sessions and
+/// terminals within `AGENT_SEND_WINDOW`. Two agents told to talk to each other
+/// would otherwise go on for as long as the tokens last.
+const AGENT_SEND_LIMIT: usize = 5;
+const AGENT_SEND_WINDOW: Duration = Duration::from_secs(600);
 
 /// How long a file ticket stays valid. Long enough for a <video> to stream and
 /// seek through one sitting, short enough that a leaked URL is quickly worthless.
@@ -400,6 +409,7 @@ pub fn start_at(
         remote_terminals: Mutex::new(HashSet::new()),
         tickets: Mutex::new(HashMap::new()),
         muxes: Mutex::new(HashMap::new()),
+        agent_sends: Mutex::new(HashMap::new()),
     });
     let ctx = Arc::new(Ctx {
         env: env.clone(),
@@ -655,6 +665,15 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
             respond_json(stream, 403, "{\"error\":\"token is read-only\"}");
             return;
         }
+        if agent_send_limited(req, ctx, rest) {
+            let error = format!(
+                "this conversation has sent {AGENT_SEND_LIMIT} messages to other sessions or terminals in the last \
+                 {} minutes — stop and ask the user before sending more (a guard against agents messaging each other \
+                 without end)",
+                AGENT_SEND_WINDOW.as_secs() / 60
+            );
+            return respond_json(stream, 429, &serde_json::json!({ "error": error }).to_string());
+        }
         v1(stream, req, ctx, rest, &who);
         return;
     }
@@ -719,6 +738,36 @@ fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
         return;
     }
     proxy_opencode(stream, req, ctx);
+}
+
+/// Is this a message an agent is sending (`X-OSD-Origin-Session`, set by the
+/// runtime's origin plugin) past its conversation's allowance? A message is a
+/// prompt to a session, or terminal input that presses Enter — typing without
+/// it sends nothing. Counts the message when it is let through.
+fn agent_send_limited(req: &Request, ctx: &Ctx, rest: &str) -> bool {
+    let Some(origin) = req.header("x-osd-origin-session").filter(|o| !o.is_empty()) else {
+        return false;
+    };
+    let segs: Vec<&str> = rest.trim_matches('/').split('/').collect();
+    let sends = req.method == "POST"
+        && match segs.as_slice() {
+            ["sessions", _, "prompt"] => true,
+            ["terminals", _, "input"] => json_str_field(&req.body, "data").is_some_and(|d| d.contains('\r') || d.contains('\n')),
+            _ => false,
+        };
+    if !sends {
+        return false;
+    }
+    let now = Instant::now();
+    let mut all = ctx.shared.agent_sends.lock().unwrap();
+    all.retain(|_, times| times.last().is_some_and(|t| now.duration_since(*t) < AGENT_SEND_WINDOW));
+    let times = all.entry(origin.to_string()).or_default();
+    times.retain(|t| now.duration_since(*t) < AGENT_SEND_WINDOW);
+    if times.len() >= AGENT_SEND_LIMIT {
+        return true;
+    }
+    times.push(now);
+    false
 }
 
 /// The versioned contract surface (CLI / curl / the SPA's file browser).
@@ -2755,6 +2804,39 @@ mod tests {
         assert_eq!(body_len, expected, "body truncated: got {body_len} of {expected}");
     }
 
+    /// An agent messaging other sessions and terminals through `osd` is held to
+    /// AGENT_SEND_LIMIT per conversation: past it, 429. Typing without Enter
+    /// sends nothing and is not counted; another conversation, or a person (no
+    /// origin header), is not affected.
+    #[test]
+    fn an_agent_may_send_only_so_many_messages() {
+        let (env, dir) = env_with_recorded_port("agentsends", None);
+        let fake = Arc::new(FakeTerminals::default());
+        let state = GatewayState::default().with_terminals(fake.clone());
+        let mut p = read_persisted(&env);
+        p.enabled = true;
+        write_persisted(&env, &p).unwrap();
+        let port = start_at(&env, &state, &p, None).unwrap();
+        set_gateway_config(&env, &state, true, false, "full".into(), None, true).unwrap();
+        assert_eq!(call(port, "POST", "/v1/terminals/t1", r#"{"cwd":null,"cols":80,"rows":24}"#).0, 200);
+        let from = |origin: &str| format!("Bearer t\r\nX-OSD-Origin-Session: {origin}");
+        let a = from("ses_a");
+        let enter = r#"{"data":"ls\r"}"#;
+        for _ in 0..AGENT_SEND_LIMIT {
+            assert_eq!(call_as(port, "POST", "/v1/terminals/t1/input", Some(&a), enter).0, 200);
+        }
+        assert_eq!(call_as(port, "POST", "/v1/terminals/t1/input", Some(&a), r#"{"data":"ls"}"#).0, 200, "no Enter");
+        let (status, body) = call_as(port, "POST", "/v1/terminals/t1/input", Some(&a), enter);
+        assert_eq!(status, 429);
+        assert!(body.contains("ask the user"), "{body}");
+        // A prompt to a session counts the same way.
+        assert_eq!(call_as(port, "POST", "/v1/sessions/ses_x/prompt", Some(&a), r#"{"text":"hi"}"#).0, 429);
+        assert_eq!(call_as(port, "POST", "/v1/terminals/t1/input", Some(&from("ses_b")), enter).0, 200);
+        assert_eq!(call(port, "POST", "/v1/terminals/t1/input", enter).0, 200);
+        stop(&env, &state);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A terminal's agent is found on its pane: the desktop window's for the
     /// token, the account's own Screens for an account (where a browser names
     /// the shell `w<browser>-<pane>`). One that has exited does not count.
@@ -3079,6 +3161,7 @@ mod tests {
                 remote_terminals: Mutex::new(HashSet::new()),
                 tickets: Mutex::new(HashMap::new()),
                 muxes: Mutex::new(HashMap::new()),
+                agent_sends: Mutex::new(HashMap::new()),
             }),
             assets: Arc::new(NoAssets),
             terminals: None,

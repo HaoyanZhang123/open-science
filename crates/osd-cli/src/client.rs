@@ -17,6 +17,11 @@ pub struct Client {
     /// How this connection was found, for `osd status` and for error messages
     /// that would otherwise leave the user guessing which server they hit.
     pub origin: String,
+    /// The conversation this `osd` runs for, when an agent runs it (set by the
+    /// runtime's origin plugin): sent as `X-OSD-Origin-Session`, so the gateway
+    /// can say which agent did what and keep agents from messaging each other
+    /// without end.
+    via: Option<String>,
 }
 
 impl Client {
@@ -49,7 +54,10 @@ impl Client {
             .timeout(Duration::from_secs(120))
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Client { base: base.trim_end_matches('/').to_string(), token, http, origin })
+        let via = std::env::var("OSD_ORIGIN_SESSION")
+            .ok()
+            .filter(|s| !s.is_empty() && s.len() <= 128 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+        Ok(Client { base: base.trim_end_matches('/').to_string(), token, http, origin, via })
     }
 
     pub fn get(&self, path: &str) -> Result<Value, String> {
@@ -86,6 +94,7 @@ impl Client {
             .http
             .get(self.url(path))
             .bearer_auth(&self.token)
+            .headers(self.via_header())
             .send()
             .map_err(|e| self.unreachable(e))?;
         let status = res.status();
@@ -96,12 +105,24 @@ impl Client {
         Ok(bytes)
     }
 
+    fn via_header(&self) -> reqwest::header::HeaderMap {
+        let mut h = reqwest::header::HeaderMap::new();
+        if let Some(v) = self.via.as_deref().and_then(|v| reqwest::header::HeaderValue::from_str(v).ok()) {
+            h.insert("x-osd-origin-session", v);
+        }
+        h
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path)
     }
 
     fn json(&self, req: reqwest::blocking::RequestBuilder) -> Result<Value, String> {
-        let res = req.bearer_auth(&self.token).send().map_err(|e| self.unreachable(e))?;
+        let res = req
+            .bearer_auth(&self.token)
+            .headers(self.via_header())
+            .send()
+            .map_err(|e| self.unreachable(e))?;
         let status = res.status();
         let bytes = res.bytes().map_err(|e| e.to_string())?.to_vec();
         if !status.is_success() {
