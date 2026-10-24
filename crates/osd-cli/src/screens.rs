@@ -4,6 +4,8 @@
 // Screen's panes with what each one is, where it works and the id the other
 // commands take. The token sees the desktop window's Screens; an account sees
 // its own.
+use std::time::{Duration, Instant};
+
 use serde_json::{json, Value};
 
 use crate::args::Args;
@@ -164,6 +166,121 @@ pub fn screen_ls(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
+// ---- terminals --------------------------------------------------------------
+
+fn read(client: &Client, id: &str, turns: usize, lines: usize) -> Result<Value, String> {
+    client.get(&format!("/v1/terminals/{id}/read?turns={turns}&lines={lines}"))
+}
+
+fn count(args: &Args, name: &str, default: usize) -> Result<usize, String> {
+    args.value(name)
+        .map(|v| v.parse::<usize>().map_err(|_| format!("invalid --{name} {v:?}")))
+        .transpose()
+        .map(|v| v.unwrap_or(default))
+}
+
+fn print_read(r: &Value) {
+    if r["kind"] == "shell" {
+        println!("{}", r["text"].as_str().unwrap_or(""));
+        return;
+    }
+    let agent = match r["agent"].as_str() {
+        Some("claude") => "Claude Code",
+        Some("codex") => "Codex",
+        Some(other) => other,
+        None => "agent",
+    };
+    let state = if r["busy"].as_bool() == Some(true) { "working" } else { "idle" };
+    println!("{agent} · {state} · {}\n", r["cwd"].as_str().unwrap_or(""));
+    for e in r["entries"].as_array().into_iter().flatten() {
+        let text = e["text"].as_str().unwrap_or("");
+        match e["role"].as_str() {
+            Some("tool") => println!("  → {text}"),
+            Some(role) => println!("--- {role}\n{text}\n"),
+            None => {}
+        }
+    }
+}
+
+pub fn term_read(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let id = args.at(0, "terminal id")?;
+    let r = read(&client, &id, count(args, "turns", 1)?, count(args, "lines", 40)?)?;
+    if args.has("json") {
+        println!("{}", serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    print_read(&r);
+    Ok(())
+}
+
+/// What the agent answered to `sent`: its words after the LAST time `sent`
+/// appears as a user message, once its turn is over. None while there is no
+/// such message yet, or it is still working.
+pub fn reply_to(r: &Value, sent: &str) -> Option<String> {
+    if r["busy"].as_bool() != Some(false) {
+        return None;
+    }
+    let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let want = squash(sent);
+    let entries = r["entries"].as_array()?;
+    let at = entries
+        .iter()
+        .rposition(|e| e["role"] == "user" && squash(e["text"].as_str().unwrap_or("")).contains(&want))?;
+    let words: Vec<&str> = entries[at + 1..]
+        .iter()
+        .filter(|e| e["role"] == "assistant")
+        .filter_map(|e| e["text"].as_str())
+        .collect();
+    (!words.is_empty()).then(|| words.join("\n\n"))
+}
+
+pub fn term_send(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let id = args.at(0, "terminal id")?;
+    let text = args.rest(1);
+    if text.trim().is_empty() {
+        return Err("nothing to send: osd term send <id> <text…>".into());
+    }
+    let wait = args.has("wait");
+    if wait && read(&client, &id, 1, 1)?["kind"] != "agent" {
+        return Err("--wait needs Claude Code or Codex running in that terminal; this one is a plain shell".into());
+    }
+    // A newline typed into a terminal is Enter, so a message of several lines
+    // goes in as one paste (bracketed): the agent receives it whole, a shell
+    // does not run it line by line. Enter is its own write a moment later —
+    // tested against both agents' TUIs.
+    let data = if text.contains('\n') { format!("\u{1b}[200~{text}\u{1b}[201~") } else { text.clone() };
+    client.post(&format!("/v1/terminals/{id}/input"), json!({ "data": data }))?;
+    if !args.has("no-enter") {
+        std::thread::sleep(Duration::from_millis(300));
+        client.post(&format!("/v1/terminals/{id}/input"), json!({ "data": "\r" }))?;
+    }
+    if !wait {
+        return Ok(());
+    }
+    let timeout = count(args, "timeout", 600)? as u64;
+    let deadline = Instant::now() + Duration::from_secs(timeout);
+    let mut interval = Duration::from_secs(1);
+    loop {
+        // An agent queues a message sent mid-turn, so the answer may come after
+        // the turn already running: wait for the agent to be idle with an
+        // answer AFTER this message.
+        let r = read(&client, &id, 50, 1)?;
+        if let Some(answer) = reply_to(&r, &text) {
+            println!("{answer}");
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            return Err(format!(
+                "no reply within {timeout}s — it may still be working; read it later with `osd term read {id}`"
+            ));
+        }
+        std::thread::sleep(interval);
+        interval = (interval + Duration::from_millis(500)).min(Duration::from_secs(5));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +314,22 @@ mod tests {
         // An account's layout: its shells are named by its browser, not here.
         let mine = screens_of(&layout, &sessions, false);
         assert!(matches!(&mine[0].panes[1], Pane::Terminal { shell: None, .. }));
+    }
+
+    #[test]
+    fn a_reply_is_what_came_after_the_message_once_the_turn_is_over() {
+        let r = |busy: bool, entries: Value| json!({ "kind": "agent", "busy": busy, "entries": entries });
+        let asked = json!([
+            { "role": "user", "text": "earlier" },
+            { "role": "assistant", "text": "old answer" },
+            { "role": "user", "text": "check   the\nbuild" },
+            { "role": "tool", "text": "Bash: make" },
+            { "role": "assistant", "text": "It passes." },
+        ]);
+        assert_eq!(reply_to(&r(false, asked.clone()), "check the build"), Some("It passes.".into()));
+        assert_eq!(reply_to(&r(true, asked), "check the build"), None, "still working");
+        // Sent but not answered yet (queued behind another turn, or just landed).
+        let pending = json!([{ "role": "user", "text": "earlier" }, { "role": "assistant", "text": "old answer" }]);
+        assert_eq!(reply_to(&r(false, pending), "check the build"), None);
     }
 }

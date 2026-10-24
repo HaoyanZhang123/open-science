@@ -1575,6 +1575,7 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
             }
         }
         _ if !ours => respond_json(stream, 404, "{\"error\":\"no such terminal\"}"),
+        ("GET", ["read"]) => terminal_read(stream, req, ctx, terminals, id, who),
         ("POST", ["input"]) => match serde_json::from_slice::<TerminalInput>(&req.body) {
             Ok(i) => done(stream, terminals.write(id, &i.data)),
             Err(_) => respond_json(stream, 400, "{\"error\":\"bad body\"}"),
@@ -1593,6 +1594,82 @@ fn terminal_route(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str, re
         },
         _ => respond_json(stream, 404, "{\"error\":\"not found\"}"),
     }
+}
+
+/// The agent a terminal pane runs, from the layout it lives in: the desktop
+/// window's, or the account's own. A browser names its own shells
+/// `w<browser>-<pane>` (see the web client's `shellOf`), so the pane is the
+/// part after the last dash. Only a RUNNING agent counts — one that has exited
+/// left a shell behind, and the shell is what is there now.
+fn terminal_agent(ctx: &Ctx, id: &str, who: &Principal) -> Option<(String, String, Option<String>)> {
+    let pane = if id.starts_with('w') { id.rsplit('-').next().unwrap_or(id) } else { id };
+    let layout = match who {
+        Principal::User { name, .. } => crate::web_accounts::read_layout(&ctx.env, name)?,
+        Principal::Token => crate::web_accounts::read_desktop_layout(&ctx.env)?.1,
+    };
+    let layout: serde_json::Value = serde_json::from_str(&layout).ok()?;
+    fn find<'a>(n: &'a serde_json::Value, pane: &str) -> Option<&'a serde_json::Value> {
+        if n["kind"] == "leaf" {
+            return (n["id"].as_str() == Some(pane)).then_some(n);
+        }
+        n["children"].as_array()?.iter().find_map(|c| find(c, pane))
+    }
+    let leaf = layout["groups"].as_array()?.iter().find_map(|g| find(&g["tree"], pane))?;
+    let c = &leaf["content"];
+    let agent = &c["agent"];
+    if c["kind"] != "terminal" || agent["running"].as_bool() != Some(true) {
+        return None;
+    }
+    Some((
+        agent["kind"].as_str()?.to_string(),
+        agent["sessionId"].as_str()?.to_string(),
+        c["cwd"].as_str().map(str::to_string),
+    ))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+/// `GET /v1/terminals/{id}/read?turns=N&lines=N`: what the terminal is doing,
+/// as text. An agent in it is read from its own transcript (the last `turns`
+/// turns, and whether one is still open); a plain shell from its recent output
+/// (the last `lines` lines).
+fn terminal_read(
+    stream: &mut TcpStream,
+    req: &Request,
+    ctx: &Ctx,
+    terminals: &Arc<dyn Terminals>,
+    id: &str,
+    who: &Principal,
+) {
+    let num = |k: &str, default: usize, max: usize| {
+        req.query_get(k).and_then(|v| v.parse::<usize>().ok()).unwrap_or(default).clamp(1, max)
+    };
+    if let Some((agent, session, cwd)) = terminal_agent(ctx, id, who) {
+        if let Some(t) = home_dir().and_then(|h| crate::terminal_read::transcript(&h, &agent, &session, num("turns", 3, 50))) {
+            let payload = serde_json::json!({
+                "kind": "agent", "agent": t.agent, "session": session, "cwd": cwd,
+                "busy": t.busy, "entries": t.entries,
+            });
+            return respond_json(stream, 200, &payload.to_string());
+        }
+    }
+    let Some(rx) = terminals.subscribe(id) else {
+        return respond_json(stream, 404, "{\"error\":\"no such terminal\"}");
+    };
+    // `subscribe` replays the recent output first: take that, not what follows
+    // — and stop within a second even for a shell that never goes quiet.
+    let mut raw = String::new();
+    let until = Instant::now() + Duration::from_secs(1);
+    while let Ok(chunk) = rx.recv_timeout(Duration::from_millis(150)) {
+        raw.push_str(&chunk);
+        if Instant::now() > until {
+            break;
+        }
+    }
+    let text = crate::terminal_read::screen_text(&raw, num("lines", 40, 1000));
+    respond_json(stream, 200, &serde_json::json!({ "kind": "shell", "text": text }).to_string());
 }
 
 /// A shell's output as server-sent events: `data:` carries a JSON string per
@@ -2678,12 +2755,44 @@ mod tests {
         assert_eq!(body_len, expected, "body truncated: got {body_len} of {expected}");
     }
 
+    /// A terminal's agent is found on its pane: the desktop window's for the
+    /// token, the account's own Screens for an account (where a browser names
+    /// the shell `w<browser>-<pane>`). One that has exited does not count.
+    #[test]
+    fn a_terminal_agent_is_found_on_its_pane() {
+        let (ctx, root) = ctx_with_base("tagent");
+        let layout = |pane: &str, running: bool| {
+            serde_json::json!({ "groups": [{ "id": "g1", "name": "", "tree": { "kind": "split", "dir": "row", "sizes": [0.5, 0.5], "children": [
+                { "kind": "leaf", "id": "p1", "sessionId": "ses_a" },
+                { "kind": "leaf", "id": pane, "sessionId": null, "content": { "kind": "terminal", "cwd": "/repo",
+                  "agent": { "kind": "claude", "sessionId": "abc-1", "running": running } } }
+            ]}}]})
+            .to_string()
+        };
+        crate::web_accounts::write_desktop_layout(&ctx.env, &layout("p9", true)).unwrap();
+        let want = Some(("claude".to_string(), "abc-1".to_string(), Some("/repo".to_string())));
+        assert_eq!(terminal_agent(&ctx, "p9", &Principal::Token), want);
+        assert_eq!(terminal_agent(&ctx, "p1", &Principal::Token), None, "a conversation pane");
+
+        crate::web_accounts::set_password(&ctx.env, "gus", "a long password").unwrap();
+        crate::web_accounts::write_layout(&ctx.env, "gus", &layout("p4", true)).unwrap();
+        let gus = Principal::User { name: "gus".into(), session: String::new() };
+        assert_eq!(terminal_agent(&ctx, "wk3j9x2m1q8z0-p4", &gus), want);
+        assert_eq!(terminal_agent(&ctx, "p9", &gus), None, "not the window's panes");
+
+        crate::web_accounts::write_desktop_layout(&ctx.env, &layout("p9", false)).unwrap();
+        assert_eq!(terminal_agent(&ctx, "p9", &Principal::Token), None, "exited");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     /// A host's shells, faked: echoes input back as output, records what was
     /// closed. `desktop` stands in for a terminal the desktop window owns.
     #[derive(Default)]
     struct FakeTerminals {
         live: Mutex<HashMap<String, Vec<std::sync::mpsc::Sender<String>>>>,
         closed: Mutex<Vec<String>>,
+        /// Everything each shell has printed, replayed to a new subscriber.
+        history: Mutex<HashMap<String, String>>,
     }
 
     impl Terminals for FakeTerminals {
@@ -2697,6 +2806,7 @@ mod tests {
             let mut live = self.live.lock().unwrap();
             let subs = live.get_mut(id).ok_or("no such terminal")?;
             subs.retain(|tx| tx.send(format!("echo:{data}")).is_ok());
+            self.history.lock().unwrap().entry(id.to_string()).or_default().push_str(&format!("echo:{data}"));
             Ok(())
         }
         fn resize(&self, _id: &str, _cols: u16, _rows: u16) -> Result<(), String> {
@@ -2711,6 +2821,9 @@ mod tests {
             let mut live = self.live.lock().unwrap();
             let subs = live.get_mut(id)?;
             let (tx, rx) = std::sync::mpsc::channel();
+            if let Some(past) = self.history.lock().unwrap().get(id) {
+                let _ = tx.send(past.clone());
+            }
             subs.push(tx);
             Some(rx)
         }
@@ -2762,6 +2875,12 @@ mod tests {
         let (status, body) = call_as(port, "POST", "/v1/terminals/desktop-pane", token, open);
         assert_eq!((status, body.as_str()), (200, r#"{"created":false}"#));
         assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane/input", token, r#"{"data":"x"}"#).0, 200);
+        // A shell with no agent in it is read from its recent output.
+        let (status, body) = call_as(port, "GET", "/v1/terminals/desktop-pane/read", token, "");
+        assert_eq!(status, 200, "{body}");
+        let read: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((read["kind"].as_str(), read["text"].as_str()), (Some("shell"), Some("echo:x")));
+        assert_eq!(call_as(port, "GET", "/v1/terminals/desktop-pane/read", Some(&account), "").0, 404);
         // An account reaches only what it opened.
         assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane", Some(&account), open).0, 409);
         assert_eq!(call_as(port, "POST", "/v1/terminals/desktop-pane/input", Some(&account), r#"{"data":"x"}"#).0, 404);

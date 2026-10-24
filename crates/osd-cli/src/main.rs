@@ -31,6 +31,13 @@ osd — Open Science Desktop without a window
   osd screen ls                     every Screen and what is in it: sessions,
                                     terminals (and the agent in each), with
                                     the ids the other commands take
+  osd term read <id> [--turns N] [--lines N]
+                                    what a terminal is doing: the agent's own
+                                    conversation (Claude Code, Codex), or a
+                                    shell's recent output
+  osd term send <id> <text…> [--wait] [--no-enter] [--timeout S]
+                                    type into it (Enter included); --wait
+                                    returns the agent's reply
 
   osd project ls
   osd project new <name>
