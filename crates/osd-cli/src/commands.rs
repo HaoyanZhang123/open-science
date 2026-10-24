@@ -23,6 +23,7 @@ pub fn run(args: &Args) -> Result<(), String> {
         ("screen", "ls") | ("screen", "list") => crate::screens::screen_ls(args),
         ("term", "read") => crate::screens::term_read(args),
         ("term", "send") => crate::screens::term_send(args),
+        ("audit", _) => crate::screens::audit(args),
         ("project", "ls") | ("project", "list") => projects(args),
         ("project", "new") | ("project", "create") => new_project(args),
         ("run", "ls") | ("run", "list") => runs(args),

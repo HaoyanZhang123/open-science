@@ -408,7 +408,9 @@
       "body": "대화를 이 메시지로 되돌리고, 이 메시지와 이후의 모든 메시지, 그리고 해당 턴에서 변경된 파일을 삭제합니다. 되돌릴 수 없습니다.",
       "edit": "편집 후 다시 보내기",
       "revert": "여기로 되돌리기"
-    }
+    },
+    "sentByAgent": "{{session}}의 에이전트가 보냄",
+    "sentByAccountAgent": "{{account}}, {{session}}의 에이전트를 통해"
   },
   "historyRepair": {
     "reason": {

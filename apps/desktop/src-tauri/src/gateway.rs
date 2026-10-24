@@ -100,6 +100,12 @@ pub fn web_account_delete(app: AppHandle, name: String) -> Result<(), String> {
     osd_core::web_accounts::delete(&env_of(&app), &name)
 }
 
+/// Who did what through the gateway (Settings › Remote access › Audit), newest first.
+#[tauri::command(async)]
+pub fn audit_query(app: AppHandle, filter: osd_core::audit::Filter) -> Result<Vec<osd_core::audit::Entry>, String> {
+    osd_core::audit::query(&env_of(&app), &filter)
+}
+
 /// The window's Screens, which token clients mirror and accounts can copy.
 /// Written on every layout change, debounced by the caller.
 #[tauri::command]

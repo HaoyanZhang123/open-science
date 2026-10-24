@@ -417,7 +417,9 @@
       "body": "Cela ramène la conversation à ce message et le supprime, ainsi que tous les messages suivants et les modifications de fichiers effectuées lors de ces tours. Action irréversible.",
       "edit": "Modifier et renvoyer",
       "revert": "Revenir ici"
-    }
+    },
+    "sentByAgent": "par l’agent de {{session}}",
+    "sentByAccountAgent": "{{account}}, via l’agent de {{session}}"
   },
   "historyRepair": {
     "reason": {

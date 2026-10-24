@@ -606,7 +606,138 @@ fn handle(mut stream: TcpStream, ctx: Arc<Ctx>) {
             return;
         }
     };
+    let call = audit_call(&req);
+    // Who, before handling: signing out ends the very session that names them.
+    let actor = call.as_ref().map(|c| match principal(&req, &ctx) {
+        Some(Principal::Token) => "admin".to_string(),
+        Some(Principal::User { name, .. }) => format!("account:{name}"),
+        None if c.action == "login" => format!("account:{}", c.target.clone().unwrap_or_default()),
+        None => "anonymous".to_string(),
+    });
+    LAST_STATUS.with(|s| s.set(0));
     route(&mut stream, &req, &ctx);
+    if let (Some(call), Some(actor)) = (call, actor) {
+        let status = LAST_STATUS.with(|s| s.get());
+        audit_record(&ctx, &req, &stream, call, actor, status);
+    }
+}
+
+/// A change worth recording: what was done, to what, with what words.
+struct AuditCall {
+    action: String,
+    target: Option<String>,
+    detail: Option<String>,
+}
+
+/// The audit entry a request makes, or None for one that changes nothing
+/// (every GET) or nothing anyone needs to look back on (a resize, a layout save).
+/// Covers both doors: the `/v1` API (CLI, scripts) and the OpenCode paths the
+/// web client's conversations go through.
+fn audit_call(req: &Request) -> Option<AuditCall> {
+    if req.method == "GET" {
+        return None;
+    }
+    let body = || serde_json::from_slice::<serde_json::Value>(&req.body).unwrap_or_default();
+    let field = |k: &str| body()[k].as_str().map(str::to_string);
+    let words = |text: String| Some(crate::audit::clip(&text, 500));
+    let parts_text = || {
+        body()["parts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["type"] == "text")
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let call = |action: &str, target: Option<String>, detail: Option<String>| {
+        Some(AuditCall { action: action.to_string(), target, detail })
+    };
+    let m = req.method.as_str();
+    if let Some(rest) = req.path.strip_prefix("/v1/") {
+        let segs: Vec<&str> = rest.trim_matches('/').split('/').collect();
+        let id = |i: usize| segs.get(i).map(|s| s.to_string());
+        return match (m, segs.as_slice()) {
+            ("POST", ["login"]) => call("login", field("name"), None),
+            ("POST", ["logout"]) => call("logout", None, None),
+            ("POST", ["sessions"]) => call("session.create", field("directory"), field("title")),
+            ("DELETE", ["sessions", _]) => call("session.delete", id(1), None),
+            ("POST", ["sessions", _, "prompt"]) => call("session.prompt", id(1), words(field("text").unwrap_or_default())),
+            ("POST", ["sessions", _, "abort"]) => call("session.abort", id(1), None),
+            ("POST", ["permissions", _, "reply"]) => call("permission.reply", id(1), field("reply")),
+            ("POST", ["fs", "upload"]) => {
+                call("file.upload", req.query_get("name"), Some(format!("{} bytes", req.body.len())))
+            }
+            ("POST", ["fs", "discard"]) => call("file.discard", req.query_get("name"), None),
+            ("POST", ["projects"]) => call("project.create", field("name"), None),
+            ("POST", ["terminals", _]) => call("terminal.open", id(1), None),
+            ("DELETE", ["terminals", _]) => call("terminal.close", id(1), None),
+            ("POST", ["terminals", _, "input"]) => call("terminal.input", id(1), field("data")),
+            _ => None,
+        };
+    }
+    let segs: Vec<&str> = req.path.trim_matches('/').split('/').collect();
+    let id = segs.get(1).map(|s| s.to_string());
+    match (m, segs.as_slice()) {
+        ("POST", ["session"]) => call("session.create", req.query_get("directory"), field("title")),
+        ("DELETE", ["session", _]) => call("session.delete", id, None),
+        ("PATCH", ["session", _]) => call("session.rename", id, field("title")),
+        ("POST", ["session", _, "prompt_async" | "message"]) => call("session.prompt", id, words(parts_text())),
+        ("POST", ["session", _, "command"]) => {
+            let line = format!("/{} {}", field("command").unwrap_or_default(), field("arguments").unwrap_or_default());
+            call("session.command", id, words(line.trim_end().to_string()))
+        }
+        ("POST", ["session", _, "shell"]) => call("session.shell", id, words(field("command").unwrap_or_default())),
+        ("POST", ["session", _, what @ ("abort" | "revert" | "unrevert" | "summarize" | "fork")]) => {
+            call(&format!("session.{what}"), id, None)
+        }
+        ("POST", ["permission", _, "reply"]) => call("permission.reply", id, field("reply")),
+        ("POST", ["question", _, what @ ("reply" | "reject")]) => {
+            call(&format!("question.{what}"), id, words(String::from_utf8_lossy(&req.body).into_owned()))
+        }
+        ("PATCH", ["global", "config"]) => call("config.model", None, field("model")),
+        _ => None,
+    }
+}
+
+/// Keys typed into a web terminal arrive one request each. They are gathered
+/// per typist and terminal and recorded as one line when Enter is pressed (or
+/// past 2 KB), so the log reads `ls -l⏎`, not seven entries.
+static TYPING: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+fn audit_record(ctx: &Ctx, req: &Request, stream: &TcpStream, mut call: AuditCall, actor: String, status: u16) {
+    if call.action == "terminal.input" {
+        if status != 200 {
+            return;
+        }
+        let data = call.detail.take().unwrap_or_default();
+        // The data dir keeps two gateways in one process (tests) apart.
+        let key = format!("{}\0{actor}\0{}", ctx.env.data_dir().display(), call.target.as_deref().unwrap_or(""));
+        let mut typing = TYPING.lock().unwrap_or_else(|e| e.into_inner());
+        let buf = typing.get_or_insert_with(HashMap::new).entry(key.clone()).or_default();
+        buf.push_str(&data);
+        if !data.contains(['\r', '\n']) && buf.len() < 2048 {
+            return;
+        }
+        let line = typing.as_mut().and_then(|t| t.remove(&key)).unwrap_or_default();
+        call.detail = Some(crate::audit::clip(&crate::audit::typed(&line), 2048));
+    }
+    if call.action == "login" && status != 200 {
+        call.action = "login.failed".into();
+    }
+    crate::audit::record(
+        &ctx.env,
+        &crate::audit::Entry {
+            time: crate::audit::now(),
+            actor,
+            ip: stream.peer_addr().ok().map(|a| a.ip().to_string()),
+            via: req.header("x-osd-origin-session").filter(|v| !v.is_empty()).map(str::to_string),
+            action: call.action,
+            target: call.target,
+            detail: call.detail,
+            status,
+        },
+    );
 }
 
 fn route(stream: &mut TcpStream, req: &Request, ctx: &Ctx) {
@@ -1014,6 +1145,25 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 }
             }
             Principal::User { .. } => respond_json(stream, 403, "{\"error\":\"an account keeps its own layout\"}"),
+        },
+        // Who did what — for the desktop's owner only: an account reading
+        // everyone's messages and keystrokes would undo the point of it.
+        ("GET", ["audit"]) => match who {
+            Principal::Token => {
+                let filter = crate::audit::Filter {
+                    actor: req.query_get("actor"),
+                    target: req.query_get("target"),
+                    action: req.query_get("action"),
+                    since: req.query_get("since"),
+                    until: req.query_get("until"),
+                    limit: req.query_get("limit").and_then(|v| v.parse().ok()),
+                };
+                match crate::audit::query(&ctx.env, &filter) {
+                    Ok(list) => respond_json(stream, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
+                    Err(e) => respond_json(stream, 500, &err_json(&e)),
+                }
+            }
+            Principal::User { .. } => respond_json(stream, 403, "{\"error\":\"the audit log is for the desktop's owner\"}"),
         },
         ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
             Ok(ids) => {
@@ -2284,7 +2434,15 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
+thread_local! {
+    /// The status this thread last answered with — one request per connection,
+    /// one connection per thread — so `handle` can audit how a change ended
+    /// without every handler reporting it.
+    static LAST_STATUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
+}
+
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) {
+    LAST_STATUS.with(|s| s.set(status));
     let head = format!(
         "HTTP/1.1 {status} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         reason(status),
@@ -2833,6 +2991,61 @@ mod tests {
         assert_eq!(call_as(port, "POST", "/v1/sessions/ses_x/prompt", Some(&a), r#"{"text":"hi"}"#).0, 429);
         assert_eq!(call_as(port, "POST", "/v1/terminals/t1/input", Some(&from("ses_b")), enter).0, 200);
         assert_eq!(call(port, "POST", "/v1/terminals/t1/input", enter).0, 200);
+        stop(&env, &state);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Changes through either door are recorded with who made them; keys typed
+    /// into a terminal become one line at Enter; no password reaches the log;
+    /// only the token may read it.
+    #[test]
+    fn changes_are_audited_and_only_the_owner_reads_the_log() {
+        let (env, dir) = env_with_recorded_port("audit", None);
+        crate::web_accounts::set_password(&env, "hana", "a long password").unwrap();
+        let fake = Arc::new(FakeTerminals::default());
+        let state = GatewayState::default().with_terminals(fake.clone());
+        let mut p = read_persisted(&env);
+        p.enabled = true;
+        write_persisted(&env, &p).unwrap();
+        let port = start_at(&env, &state, &p, None).unwrap();
+        set_gateway_config(&env, &state, true, false, "full".into(), None, true).unwrap();
+
+        assert_eq!(call_as(port, "POST", "/v1/login", None, r#"{"name":"hana","password":"wrong one here"}"#).0, 401);
+        let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"hana","password":"a long password"}"#);
+        let hana = format!("Bearer {}", serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap());
+
+        assert_eq!(call(port, "POST", "/v1/terminals/t1", r#"{"cwd":null,"cols":80,"rows":24}"#).0, 200);
+        for key in ["l", "x", "\\u007f", "s", "\\r"] {
+            assert_eq!(call(port, "POST", "/v1/terminals/t1/input", &format!(r#"{{"data":"{key}"}}"#)).0, 200);
+        }
+        call(port, "POST", "/v1/terminals/t1/resize", r#"{"cols":100,"rows":30}"#);
+        // An agent's message, through /v1; the runtime is not running here, so it fails — and that is recorded too.
+        let agent = "Bearer t\r\nX-OSD-Origin-Session: ses_b";
+        call_as(port, "POST", "/v1/sessions/ses_a/prompt", Some(agent), r#"{"text":"what is the batch code?"}"#);
+
+        assert_eq!(call_as(port, "GET", "/v1/audit", Some(&hana), "").0, 403);
+        let (status, body) = call(port, "GET", "/v1/audit", "");
+        assert_eq!(status, 200, "{body}");
+        let log: Vec<crate::audit::Entry> = serde_json::from_str(&body).unwrap();
+        let seen: Vec<(&str, &str, Option<&str>)> =
+            log.iter().rev().map(|e| (e.actor.as_str(), e.action.as_str(), e.detail.as_deref())).collect();
+        assert_eq!(
+            seen,
+            vec![
+                ("account:hana", "login.failed", None),
+                ("account:hana", "login", None),
+                ("admin", "terminal.open", None),
+                ("admin", "terminal.input", Some("ls⏎")),
+                ("admin", "session.prompt", Some("what is the batch code?")),
+            ]
+        );
+        assert_eq!(log[0].via.as_deref(), Some("ses_b"));
+        assert_eq!(log[0].target.as_deref(), Some("ses_a"));
+        assert_eq!(log[4].status, 401, "the failed sign-in");
+        let raw = std::fs::read_to_string(crate::audit::utc_month_file_for_tests(&env)).unwrap();
+        assert!(!raw.contains("long password") && !raw.contains("wrong one"), "{raw}");
+        let one = call(port, "GET", "/v1/audit?action=terminal&limit=5", "").1;
+        assert_eq!(serde_json::from_str::<Vec<crate::audit::Entry>>(&one).unwrap().len(), 2);
         stop(&env, &state);
         std::fs::remove_dir_all(&dir).unwrap();
     }

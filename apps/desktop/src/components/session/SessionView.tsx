@@ -34,6 +34,7 @@ import { queryRuns } from "@/lib/runs";
 import { CONTENT_FONT_DEFAULT, useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { copyReference, sessionReference } from "@/lib/agentReference";
+import { useMessageSenders } from "@/lib/messageSenders";
 import { useCompactWidth } from "@/lib/useCompactWidth";
 import { fileInspectorFromBlock } from "@/lib/artifacts";
 import { useChatScroll } from "@/lib/scrollMemory";
@@ -1305,6 +1306,10 @@ function ThreadColumn({
 }) {
   const { t } = useTranslation("session");
   const thread = useRuntimeStore((s) => s.threads[k]);
+  // Who sent what, when it was not the owner — refreshed as messages arrive.
+  const userMessages = thread?.blocks.filter((b) => b.kind === "user").length ?? 0;
+  const senderOf = useMessageSenders(eid, userMessages);
+  const threadHandlers = useMemo(() => ({ ...handlers, senderOf }), [handlers, senderOf]);
   const step = useRuntimeStore((s) => (eid ? (s.stepCounts[eid] ?? 0) : 0));
   const retryNotice = useRuntimeStore((s) => (eid ? s.retryNotices[eid] : undefined));
   const backgroundReview = useRuntimeStore((s) =>
@@ -1341,7 +1346,7 @@ function ThreadColumn({
       {!historyLoading && thread && (
         <BlockList
           blocks={thread.blocks}
-          handlers={handlers}
+          handlers={threadHandlers}
           workspaceDirectory={sessionDir}
           contextLimit={contextLimit}
         />

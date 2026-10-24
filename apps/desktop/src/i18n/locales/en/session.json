@@ -417,7 +417,9 @@
       "body": "This rolls the conversation back to this message and discards it and every message after it, along with the file changes those turns made. This can't be undone.",
       "edit": "Edit & resend",
       "revert": "Revert here"
-    }
+    },
+    "sentByAgent": "via the agent in {{session}}",
+    "sentByAccountAgent": "{{account}}, via the agent in {{session}}"
   },
   "historyRepair": {
     "reason": {

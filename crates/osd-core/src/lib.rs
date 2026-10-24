@@ -10,6 +10,7 @@
 // on Linux — so anything that lives here is reachable from `osd server` on a
 // headless machine, and anything that does not, is not.
 pub mod artifact_file;
+pub mod audit;
 pub mod browser_mcp_proxy;
 pub mod debug_log;
 pub mod env;

@@ -408,7 +408,9 @@
       "body": "这会把对话回退到这条消息，并丢弃这条及其之后的所有消息，以及这几轮产生的文件改动。此操作无法撤销。",
       "edit": "修改并重发",
       "revert": "回退到这里"
-    }
+    },
+    "sentByAgent": "由 {{session}} 里的 Agent 发送",
+    "sentByAccountAgent": "{{account}}，经由 {{session}} 里的 Agent"
   },
   "historyRepair": {
     "reason": {

@@ -408,7 +408,9 @@
       "body": "会話をこのメッセージまで巻き戻し、このメッセージと以降のすべてのメッセージ、およびそれらのターンで行われたファイル変更を破棄します。元に戻せません。",
       "edit": "編集して再送信",
       "revert": "ここまで戻す"
-    }
+    },
+    "sentByAgent": "{{session}} のエージェントから",
+    "sentByAccountAgent": "{{account}}（{{session}} のエージェント経由）"
   },
   "historyRepair": {
     "reason": {

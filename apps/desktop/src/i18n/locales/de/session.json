@@ -417,7 +417,9 @@
       "body": "Dies setzt die Unterhaltung auf diese Nachricht zurück und verwirft sie sowie alle nachfolgenden Nachrichten samt der in diesen Runden vorgenommenen Dateiänderungen. Das lässt sich nicht rückgängig machen.",
       "edit": "Bearbeiten & erneut senden",
       "revert": "Hierher zurücksetzen"
-    }
+    },
+    "sentByAgent": "vom Agenten in {{session}}",
+    "sentByAccountAgent": "{{account}}, über den Agenten in {{session}}"
   },
   "historyRepair": {
     "reason": {

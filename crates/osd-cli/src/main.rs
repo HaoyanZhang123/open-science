@@ -39,6 +39,12 @@ osd — Open Science Desktop without a window
                                     type into it (Enter included); --wait
                                     returns the agent's reply
 
+  osd audit [--account NAME] [--session ID] [--action A] [--since 2026-10-01]
+            [--until DATE] [--limit N]
+                                    who did what through the gateway (the
+                                    desktop's owner only): messages, deletions,
+                                    terminal input, sign-ins
+
   osd project ls
   osd project new <name>
 

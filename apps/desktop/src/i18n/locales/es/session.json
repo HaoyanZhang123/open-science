@@ -417,7 +417,9 @@
       "body": "Esto revierte la conversación a este mensaje y lo descarta junto con todos los mensajes posteriores y los cambios de archivos que hicieron esos turnos. No se puede deshacer.",
       "edit": "Editar y reenviar",
       "revert": "Revertir aquí"
-    }
+    },
+    "sentByAgent": "del agente de {{session}}",
+    "sentByAccountAgent": "{{account}}, mediante el agente de {{session}}"
   },
   "historyRepair": {
     "reason": {

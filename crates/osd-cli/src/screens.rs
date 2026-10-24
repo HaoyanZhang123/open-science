@@ -281,6 +281,52 @@ pub fn term_send(args: &Args) -> Result<(), String> {
     }
 }
 
+// ---- audit ----------------------------------------------------------------------
+
+/// `osd audit`: who did what through the gateway, newest first.
+pub fn audit(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let mut q = Vec::new();
+    for (flag, key) in [("account", "actor"), ("session", "target"), ("action", "action"), ("since", "since"), ("until", "until")] {
+        if let Some(v) = args.value(flag) {
+            q.push(format!("{key}={}", urlencode(&v)));
+        }
+    }
+    q.push(format!("limit={}", count(args, "limit", 50)?));
+    let list = client.get(&format!("/v1/audit?{}", q.join("&")))?;
+    if args.has("json") {
+        println!("{}", serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    let rows = list.as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        println!("Nothing recorded.");
+    }
+    for e in rows.iter().rev() {
+        let s = |k: &str| e[k].as_str().unwrap_or("");
+        let when = s("time").replace('T', " ").trim_end_matches('Z').to_string();
+        let via = e["via"].as_str().map(|v| format!(" (agent in {v})")).unwrap_or_default();
+        let failed = match e["status"].as_u64() {
+            Some(code) if !(200..300).contains(&code) => format!("  [{code}]"),
+            _ => String::new(),
+        };
+        println!("{when}Z  {}{via}  {}  {}{failed}", s("actor"), s("action"), s("target"));
+        if let Some(d) = e["detail"].as_str().filter(|d| !d.is_empty()) {
+            println!("    {}", d.replace('\n', "\n    "));
+        }
+    }
+    Ok(())
+}
+
+fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
