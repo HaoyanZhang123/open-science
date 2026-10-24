@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   FolderTree,
+  Link2,
   Monitor,
   UserRound,
   NotebookPen,
@@ -38,6 +39,7 @@ import { overlayTitlebarStyle } from "@/lib/titlebar";
 import { cn } from "@/lib/cn";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useTransientScrollbar } from "@/lib/transientScrollbar";
+import { copyReference, screenReference } from "@/lib/agentReference";
 import { ContextMenu, ContextMenuItem } from "@/components/ui/ContextMenu";
 import { InlineName } from "@/components/ui/InlineName";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -419,6 +421,14 @@ export function GroupTabs() {
   }, [activeGroupId]);
   const { describe, sessionTitle } = usePaneNames();
   const fallback = (n: number) => t("group.defaultName", { n });
+  const sessions = useRuntimeStore((s) => s.sessions);
+  /** The Screen's panes, as a reference an agent can act on (null if none can be talked to). */
+  const screenRef = (g: LayoutGroup, i: number) =>
+    screenReference(
+      g,
+      groupLabel(g, i, fallback, describe, sessionTitle, t("nav:history.draft"), t("home.tab")),
+      (id) => sessions.find((x) => x.id === id),
+    );
 
   return (
     <>
@@ -473,6 +483,17 @@ export function GroupTabs() {
                         onSelect={() => requestAnimationFrame(() => setEditingId(g.id))}
                       >
                         {t("group.rename")}
+                      </ContextMenuItem>
+                    )}
+                    {screenRef(g, i) && (
+                      <ContextMenuItem
+                        icon={<Link2 size={14} />}
+                        onSelect={() => {
+                          const ref = screenRef(g, i);
+                          if (ref) void copyReference(ref, t("reference.copied"));
+                        }}
+                      >
+                        {t("reference.copy")}
                       </ContextMenuItem>
                     )}
                     <ContextMenuItem

@@ -4,7 +4,8 @@ import { isTauri } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { copyText } from "@/lib/clipboard";
 import { useRuntimeStore } from "@/lib/runtime";
-import { terminalTransport, terminalsAvailable } from "@/lib/terminalTransport";
+import { terminalShellId, terminalTransport, terminalsAvailable } from "@/lib/terminalTransport";
+import { copyReference, terminalReference } from "@/lib/agentReference";
 import {
   ContextMenu,
   ContextMenuItem,
@@ -45,6 +46,7 @@ import { isJumpChord } from "@/components/jump-palette/JumpPalette";
 export function TerminalPane({
   leafId,
   cwd,
+  name,
   command,
   agent,
   onSplit,
@@ -53,6 +55,8 @@ export function TerminalPane({
 }: {
   leafId: string;
   cwd?: string;
+  /** The name the user gave this terminal, if any — for its reference. */
+  name?: string;
   /** Typed into the shell once, when this terminal is first opened. */
   command?: string;
   /** The coding agent last seen in this terminal. Still running when the app
@@ -312,6 +316,16 @@ export function TerminalPane({
       )}
       <ContextMenuItem onSelect={() => getTerminal(leafId)?.term.selectAll()}>
         {t("terminal.menu.selectAll")}
+      </ContextMenuItem>
+      <ContextMenuItem
+        onSelect={() =>
+          void copyReference(
+            terminalReference({ shellId: terminalShellId(leafId), name, cwd, agent }),
+            t("reference.copied"),
+          )
+        }
+      >
+        {t("reference.copy")}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem

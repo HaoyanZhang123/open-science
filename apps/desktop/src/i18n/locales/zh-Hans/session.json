@@ -584,5 +584,9 @@
       "night": "夜深了"
     },
     "count_other": "{{count}} 个会话"
+  },
+  "reference": {
+    "copy": "复制引用（给 Agent）",
+    "copied": "已复制引用，粘贴给 Agent 即可"
   }
 }

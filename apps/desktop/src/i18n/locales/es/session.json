@@ -597,5 +597,9 @@
     },
     "count_one": "{{count}} sesión",
     "count_other": "{{count}} sesiones"
+  },
+  "reference": {
+    "copy": "Copiar referencia para un agente",
+    "copied": "Referencia copiada: pégala a un agente"
   }
 }

@@ -168,6 +168,13 @@ const web: TerminalTransport = {
 
 export const terminalTransport: TerminalTransport = isGatewayWeb ? web : desktop;
 
+/** The id the gateway knows a pane's shell by — what `osd term` takes. The
+ *  desktop names a shell after its pane; a browser after itself and the pane
+ *  (see `shellOf`), unless it is following the window's Screens. */
+export function terminalShellId(leafId: string): string {
+  return isGatewayWeb ? shellOf(leafId).wire : leafId;
+}
+
 /** Whether this client has terminals at all: the desktop app always, a web
  *  client only once the desktop allows it (`webTerminal`, from /v1/whoami). */
 export function terminalsAvailable(webTerminal: boolean): boolean {

@@ -9,6 +9,7 @@ mod account;
 mod auth;
 mod client;
 mod commands;
+mod screens;
 mod server;
 
 use args::Args;
@@ -26,6 +27,10 @@ osd — Open Science Desktop without a window
   osd session show <id>
   osd session abort <id>
   osd session rm <id>
+
+  osd screen ls                     every Screen and what is in it: sessions,
+                                    terminals (and the agent in each), with
+                                    the ids the other commands take
 
   osd project ls
   osd project new <name>

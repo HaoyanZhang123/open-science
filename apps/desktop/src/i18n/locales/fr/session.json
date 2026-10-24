@@ -597,5 +597,9 @@
     },
     "count_one": "{{count}} session",
     "count_other": "{{count}} sessions"
+  },
+  "reference": {
+    "copy": "Copier une référence pour un agent",
+    "copied": "Référence copiée — collez-la à un agent"
   }
 }

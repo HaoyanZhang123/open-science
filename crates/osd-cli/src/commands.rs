@@ -20,6 +20,7 @@ pub fn run(args: &Args) -> Result<(), String> {
         ("session", "show") => show(args),
         ("session", "rm") | ("session", "delete") => rm_session(args),
         ("session", "abort") => abort(args),
+        ("screen", "ls") | ("screen", "list") => crate::screens::screen_ls(args),
         ("project", "ls") | ("project", "list") => projects(args),
         ("project", "new") | ("project", "create") => new_project(args),
         ("run", "ls") | ("run", "list") => runs(args),

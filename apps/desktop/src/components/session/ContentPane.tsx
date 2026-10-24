@@ -114,6 +114,7 @@ export function ContentPane({
             <TerminalPane
               leafId={leafId}
               cwd={content.cwd}
+              name={content.name}
               command={content.command}
               agent={content.agent}
               // Splitting from the terminal's own menu puts the new pane BESIDE

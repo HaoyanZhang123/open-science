@@ -33,6 +33,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { queryRuns } from "@/lib/runs";
 import { CONTENT_FONT_DEFAULT, useOverlayTitlebar, useUiStore } from "@/lib/store";
 import { overlayTitlebarStyle } from "@/lib/titlebar";
+import { copyReference, sessionReference } from "@/lib/agentReference";
 import { useCompactWidth } from "@/lib/useCompactWidth";
 import { fileInspectorFromBlock } from "@/lib/artifacts";
 import { useChatScroll } from "@/lib/scrollMemory";
@@ -604,6 +605,18 @@ export function SessionView({
   const paneMenu = (
     <>
       <ContextMenuItem onSelect={() => setFinding(true)}>{t("find.find")}</ContextMenuItem>
+      {eid && (
+        <ContextMenuItem
+          onSelect={() =>
+            void copyReference(
+              sessionReference({ id: eid, title, directory: sessionDir ?? undefined }),
+              t("reference.copied"),
+            )
+          }
+        >
+          {t("reference.copy")}
+        </ContextMenuItem>
+      )}
       <ContextMenuItem disabled={!eid} onSelect={() => setRenaming(true)}>
         {t("live.header.rename")}
       </ContextMenuItem>
