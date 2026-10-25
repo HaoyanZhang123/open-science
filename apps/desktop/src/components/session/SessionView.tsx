@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -41,6 +41,7 @@ import { useChatScroll } from "@/lib/scrollMemory";
 import { useWheelChain } from "@/lib/wheelChain";
 import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
 import { TurnNavigator } from "@/components/thread/TurnNavigator";
+import { ClearedHistory } from "@/components/thread/ClearedHistory";
 import { TrajectoryPane } from "@/components/thread/TrajectoryPane";
 import { IconBranchOutlineRegular } from "@/components/icons/dsh";
 import { SubagentPane } from "@/components/thread/SubagentPane";
@@ -309,6 +310,14 @@ export function SessionView({
       if (focused) navigate("/live");
     } else bindIfCreated(created);
   };
+  // Show another session in this pane (the earlier half of a /clear).
+  const onOpenSession = useCallback(
+    (id: string) => {
+      bindSession(leafId, id);
+      if (focused) navigate(`/live/${id}`);
+    },
+    [bindSession, leafId, focused, navigate],
+  );
   const composerCommands = useMemo(() => {
     const local = [
       { name: "new", description: t("localCommand.newDescription"), source: "local", immediate: true },
@@ -393,6 +402,7 @@ export function SessionView({
   // repaints.
   const threadLoaded = useRuntimeStore((s) => !!s.threads[key]?.loaded);
   const blocksCount = useRuntimeStore((s) => s.threads[key]?.blocks.length ?? 0);
+  const hasCleared = useRuntimeStore((s) => !!s.clearedFrom[key]);
   const historyLoading = connected && !!eid && !threadLoaded;
   const title = sessions.find((s) => s.id === eid)?.title;
   const working = sending || running;
@@ -1007,6 +1017,7 @@ export function SessionView({
               sessionDir={sessionDir ?? undefined}
               contextLimit={contextLimit}
               onSend={onSend}
+              onOpenSession={onOpenSession}
               roomForStarters={roomForStarters}
             />
           </div>
@@ -1016,7 +1027,7 @@ export function SessionView({
         )}
         </div>
 
-        {!atLatest && blocksCount > 0 && (
+        {!atLatest && (blocksCount > 0 || hasCleared) && (
           <div
             className="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
             style={{ bottom: composerH + 18 }}
@@ -1302,6 +1313,7 @@ function ThreadColumn({
   sessionDir,
   contextLimit,
   onSend,
+  onOpenSession,
   roomForStarters,
 }: {
   k: string;
@@ -1318,6 +1330,7 @@ function ThreadColumn({
   sessionDir: string | undefined;
   contextLimit: number | undefined;
   onSend: (text: string, attachments?: string[]) => Promise<void>;
+  onOpenSession: (id: string) => void;
   roomForStarters: boolean;
 }) {
   const { t } = useTranslation("session");
@@ -1334,6 +1347,9 @@ function ThreadColumn({
   const cancelAutoReview = useRuntimeStore((s) => s.cancelAutoReview);
   const historyLoading = connected && !!eid && !thread?.loaded;
   const isEmpty = !thread || thread.blocks.length === 0;
+  // The conversation /clear cleared, kept above this one.
+  const clearedFrom = useRuntimeStore((s) => s.clearedFrom[k]);
+  const clearedExists = useRuntimeStore((s) => !!clearedFrom && s.sessions.some((x) => x.id === clearedFrom));
   // Scan backwards in place: copying + reversing the whole block list ran on
   // every render of a live pane, allocating a fresh array per streamed token.
   const currentTool = working ? findLastRunningTool(thread?.blocks) : undefined;
@@ -1355,8 +1371,16 @@ function ThreadColumn({
     running && lastBlock?.kind === "reasoning" ? latestLine(lastBlock.text) : undefined;
   return (
     <>
-      {connected && isEmpty && !eid && !webReadOnly && (
+      {connected && isEmpty && !eid && !clearedFrom && !webReadOnly && (
         <WorkflowStarters onPick={(p) => void onSend(p)} showCards={roomForStarters} />
+      )}
+      {clearedFrom && (
+        <ClearedHistory
+          sessionId={clearedFrom}
+          connected={connected}
+          handlers={handlers}
+          onOpen={clearedExists ? () => onOpenSession(clearedFrom) : undefined}
+        />
       )}
       {historyLoading && <ThreadSkeleton />}
       {!historyLoading && thread && (

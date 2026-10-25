@@ -160,9 +160,11 @@
     "busyCommand": "이번 턴이 끝난 뒤에 명령을 실행하세요."
   },
   "localCommand": {
-    "newDescription": "이 폴더에서 채팅 컨텍스트 지우기",
-    "clearDescription": "/new와 동일합니다. 파일은 이 폴더에 남습니다",
-    "cleared": "채팅 컨텍스트를 지웠습니다. 파일은 같은 폴더에 남아 있습니다."
+    "newDescription": "이 폴더에서 새 대화 시작",
+    "clearDescription": "컨텍스트를 지웁니다. 이전 메시지는 위에 계속 표시됩니다",
+    "clearedLabel": "컨텍스트를 지웠습니다",
+    "clearedHint": "모델은 위의 메시지를 보지 못합니다",
+    "openEarlier": "이전 세션 열기"
   },
   "starters": {
     "newSession": "새 세션",

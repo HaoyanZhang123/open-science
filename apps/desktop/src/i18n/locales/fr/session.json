@@ -160,9 +160,11 @@
     "busyCommand": "Attendez la fin de ce tour avant de lancer une commande."
   },
   "localCommand": {
-    "newDescription": "Effacer le contexte du chat dans ce dossier",
-    "clearDescription": "Identique à /new ; les fichiers restent dans ce dossier",
-    "cleared": "Contexte du chat effacé. Les fichiers restent dans le même dossier."
+    "newDescription": "Nouvelle conversation dans ce dossier",
+    "clearDescription": "Effacer le contexte ; les messages précédents restent visibles au-dessus",
+    "clearedLabel": "Contexte effacé",
+    "clearedHint": "Le modèle ne voit plus les messages ci-dessus",
+    "openEarlier": "Ouvrir cette session"
   },
   "starters": {
     "newSession": "Nouvelle session",

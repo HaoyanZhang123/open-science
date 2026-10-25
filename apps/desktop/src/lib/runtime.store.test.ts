@@ -1096,10 +1096,11 @@ describe("per-session workspace folders", () => {
     expect(s.runningSessions["ses_new"]).toBeUndefined();
   });
 
-  it("/clear starts a new draft in the same folder without calling OpenCode command", async () => {
+  it("/clear starts a new draft in the same folder and keeps the cleared session above it", async () => {
     useRuntimeStore.setState({
       currentId: "ses_old",
       draftWorkspaces: {},
+      clearedFrom: {},
       threads: {
         ses_old: { blocks: [{ kind: "user", text: "old context" }], index: {}, loaded: true },
       },
@@ -1112,19 +1113,38 @@ describe("per-session workspace folders", () => {
     expect(cleared.currentId).toBe(null);
     expect(cleared.draftWorkspaces[DRAFT_KEY]).toBe(cleared.workspace);
     expect(cleared.threads.ses_old.blocks).toEqual([{ kind: "user", text: "old context" }]);
-    expect(cleared.threads[DRAFT_KEY].blocks).toEqual([
-      {
-        kind: "status-line",
-        text: "Chat context cleared. Files stay in the same folder.",
-        tone: "review",
-        divider: true,
-      },
-    ]);
+    expect(cleared.threads[DRAFT_KEY].blocks).toEqual([]);
+    expect(cleared.clearedFrom[DRAFT_KEY]).toBe("ses_old");
+
+    // A second /clear before sending has nothing new to clear: it keeps the link.
+    await useRuntimeStore.getState().runCommand("clear");
+    expect(useRuntimeStore.getState().clearedFrom[DRAFT_KEY]).toBe("ses_old");
 
     const connectsBeforeNextTurn = mocks.clientOpts.length;
     await useRuntimeStore.getState().sendPrompt("next");
     expect(mocks.newDatedWorkspace).not.toHaveBeenCalled();
     expect(mocks.clientOpts.length).toBeGreaterThan(connectsBeforeNextTurn);
+
+    // The link moves onto the new session and is persisted under its id only.
+    const sent = useRuntimeStore.getState();
+    expect(sent.clearedFrom).toEqual({ ses_new: "ses_old" });
+    expect(JSON.parse(window.localStorage.getItem("ai4s.session.clearedFrom.v1") ?? "{}")).toEqual({
+      ses_new: "ses_old",
+    });
+  });
+
+  it("/new starts a blank draft that keeps nothing above it", async () => {
+    useRuntimeStore.setState({
+      currentId: "ses_old",
+      clearedFrom: { [DRAFT_KEY]: "ses_older" },
+      threads: {
+        ses_old: { blocks: [{ kind: "user", text: "old context" }], index: {}, loaded: true },
+      },
+    });
+    await useRuntimeStore.getState().runCommand("new");
+    const s = useRuntimeStore.getState();
+    expect(s.threads[DRAFT_KEY].blocks).toEqual([]);
+    expect(s.clearedFrom[DRAFT_KEY]).toBeUndefined();
   });
 
   it("openSession stops the loading skeleton when history fails to load", async () => {

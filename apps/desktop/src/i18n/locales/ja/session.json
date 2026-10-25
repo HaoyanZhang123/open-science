@@ -160,9 +160,11 @@
     "busyCommand": "このターンが終わってからコマンドを実行してください。"
   },
   "localCommand": {
-    "newDescription": "このフォルダでチャット文脈を消去",
-    "clearDescription": "/new と同じ。ファイルはこのフォルダに残ります",
-    "cleared": "チャット文脈を消去しました。ファイルは同じフォルダに残ります。"
+    "newDescription": "このフォルダで新しい会話を始める",
+    "clearDescription": "文脈を消去。以前のメッセージは上に表示されたまま",
+    "clearedLabel": "文脈を消去しました",
+    "clearedHint": "モデルには上のメッセージは見えません",
+    "openEarlier": "元のセッションを開く"
   },
   "starters": {
     "newSession": "新規セッション",

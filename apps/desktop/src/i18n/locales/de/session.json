@@ -160,9 +160,11 @@
     "busyCommand": "Warte, bis dieser Durchgang fertig ist, bevor du einen Befehl ausführst."
   },
   "localCommand": {
-    "newDescription": "Chat-Kontext in diesem Ordner leeren",
-    "clearDescription": "Wie /new; Dateien bleiben in diesem Ordner",
-    "cleared": "Chat-Kontext geleert. Dateien bleiben im selben Ordner."
+    "newDescription": "Neues Gespräch in diesem Ordner",
+    "clearDescription": "Kontext leeren; frühere Nachrichten bleiben oben sichtbar",
+    "clearedLabel": "Kontext geleert",
+    "clearedHint": "Das Modell sieht die Nachrichten oberhalb nicht mehr",
+    "openEarlier": "Diese Sitzung öffnen"
   },
   "starters": {
     "newSession": "Neue Sitzung",

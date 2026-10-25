@@ -67,7 +67,7 @@ import { acpTransport } from "./acpTransport";
 import { hasParkedDraft } from "./composerStash";
 import { isWithin, samePath } from "./workspacePath";
 import { kernelReset } from "./kernel";
-import { moveScrollMemory } from "./scrollMemory";
+import { forgetScrollMemory, moveScrollMemory } from "./scrollMemory";
 import { deriveArtifact, deriveArtifactPresentation } from "./artifacts";
 import { DEFAULT_PROJECT, draftLeafOf, projectOf, useLayoutStore, type LayoutGroup } from "./layout";
 import { provenanceInputsFromEvent, recordProvenance } from "./provenance";
@@ -128,6 +128,7 @@ const REASONING_KEY = "ai4s.models.variant.v1";
  *  which survives across runs). */
 const SESSION_MODELS_KEY = "ai4s.session.models.v1";
 const SESSION_VARIANTS_KEY = "ai4s.session.variants.v1";
+const CLEARED_FROM_KEY = "ai4s.session.clearedFrom.v1";
 function loadRecord<V>(key: string): Record<string, V> {
   if (typeof window === "undefined") return {};
   try {
@@ -369,6 +370,10 @@ interface RuntimeState {
   /** Per-session reasoning-effort override; absent = the global
    *  `reasoningVariant`. */
   sessionVariants: Record<string, string | null>;
+  /** `/clear` lineage: session (or draft slot) → the session it was cleared
+   *  from. The earlier conversation stays on screen above a divider, read-only
+   *  — the model never sees it. Persisted once the key is a real session. */
+  clearedFrom: Record<string, string>;
   /** Set a session's model (per-pane); no sidecar config PATCH / reconnect. */
   setSessionModel: (sessionId: string, model: string) => void;
   /** Drop a pane's explicit pick so the turn follows the agent config / default
@@ -411,7 +416,8 @@ interface RuntimeState {
   /** Blank the draft view WITHOUT unpinning the folder the next session
    *  will be created in — only an explicit New may do that (#69). */
   resetDraftView: () => void;
-  startDraftInCurrentWorkspace: (key?: string) => void;
+  /** `/new` (no `from`) and `/clear` (`from` = the session being cleared). */
+  startDraftInCurrentWorkspace: (key?: string, from?: string) => void;
   /** Projects: named shared workspaces under `<base>/projects`. Sessions group
    *  under a project by `directory`; multiple sessions share the folder. */
   projects: ProjectInfo[];
@@ -847,7 +853,18 @@ function blankDraft(s: RuntimeState, key: string = DRAFT_KEY) {
   delete panes[key];
   const sessionAgents = { ...s.sessionAgents };
   delete sessionAgents[key];
-  return { currentId: null, threads, panes, sessionAgents };
+  const clearedFrom = { ...s.clearedFrom };
+  delete clearedFrom[key];
+  return { currentId: null, threads, panes, sessionAgents, clearedFrom };
+}
+
+/** Persist the `/clear` lineage of real sessions only — a draft slot's entry is
+ *  carried onto the session id at its first send. */
+function saveClearedFrom(rec: Record<string, string>): void {
+  saveRecord(
+    CLEARED_FROM_KEY,
+    Object.fromEntries(Object.entries(rec).filter(([k]) => !isDraftKey(k))),
+  );
 }
 /**
  * Hand the app's own MCP connectors to the ACP agent.
@@ -912,6 +929,7 @@ export const DRAFT_KEY = "draft";
  *  panes each hold an independent draft (thread/composer/model/agent) and each
  *  create their own session on first send — instead of sharing DRAFT_KEY. */
 export const draftKeyFor = (leafId: string): string => `draft:${leafId}`;
+const isDraftKey = (key: string): boolean => key === DRAFT_KEY || key.startsWith("draft:");
 
 /**
  * Folder a pane split off `source` should start in: the folder that pane's own
@@ -1862,7 +1880,14 @@ async function performTurn(
           sessionVariants[id!] = sessionVariants[draftSrc];
           delete sessionVariants[draftSrc];
         }
+        // A /clear draft's earlier conversation stays above the new session.
+        const clearedFrom = { ...s.clearedFrom };
+        if (clearedFrom[draftSrc]) {
+          clearedFrom[id!] = clearedFrom[draftSrc];
+          delete clearedFrom[draftSrc];
+        }
         return {
+          clearedFrom,
           currentId: id,
           threads,
           panes,
@@ -1880,6 +1905,7 @@ async function performTurn(
       // a relaunch restores this pane's model, not the global default.
       saveRecord(SESSION_MODELS_KEY, get().sessionModels);
       saveRecord(SESSION_VARIANTS_KEY, get().sessionVariants);
+      saveClearedFrom(get().clearedFrom);
       moveScrollMemory(`chat:${draftSrc}`, `chat:${id}`);
       void get().refreshSessions();
     }
@@ -2682,6 +2708,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   sessionAgents: {},
   sessionModels: loadRecord<string>(SESSION_MODELS_KEY),
   sessionVariants: loadRecord<string | null>(SESSION_VARIANTS_KEY),
+  clearedFrom: loadRecord<string>(CLEARED_FROM_KEY),
   setSessionModel: (sessionId, model) =>
     set((s) => {
       const sessionModels = { ...s.sessionModels, [sessionId]: model };
@@ -4121,36 +4148,32 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   // explicit New may unpin.
   resetDraftView: () => set((s) => blankDraft(s)),
 
-  // Local /new and /clear: clear the visible chat context, but keep the active
-  // folder. The first next message creates a new OpenCode session in that same
-  // folder; no session, database row, or file is deleted here. `key` is the
-  // draft slot to reset — the pane's own `draft:<leafId>` for a tiled pane,
-  // the global DRAFT_KEY for the single-pane fallback.
-  startDraftInCurrentWorkspace: (key = DRAFT_KEY) =>
+  // Local /new and /clear: start a fresh context in the active folder. The
+  // first next message creates a new OpenCode session in that same folder; no
+  // session, database row, or file is deleted here. `key` is the draft slot to
+  // reset — the pane's own `draft:<leafId>` for a tiled pane, the global
+  // DRAFT_KEY for the single-pane fallback. /new is a blank page; /clear keeps
+  // the conversation it cleared on screen above a divider (`clearedFrom`). A
+  // /clear on a draft that has no session yet keeps whatever it already showed.
+  startDraftInCurrentWorkspace: (key = DRAFT_KEY, from) =>
     set((s) => {
-      const threads = { ...s.threads };
-      threads[key] = {
-        ...emptyThread(),
-        loaded: true,
-        blocks: [
-          {
-            kind: "status-line",
-            text: i18n.t("session:localCommand.cleared"),
-            tone: "review",
-            divider: true,
-          },
-        ],
-      };
+      const threads = { ...s.threads, [key]: { ...emptyThread(), loaded: true } };
       const panes = { ...s.panes };
       delete panes[key];
       const sessionAgents = { ...s.sessionAgents };
       delete sessionAgents[key];
+      const clearedFrom = { ...s.clearedFrom };
+      if (from) clearedFrom[key] = from;
+      else delete clearedFrom[key];
+      // The slot may remember a scroll offset from an earlier draft (every pane
+      // starts as one); that would open the kept conversation at its top.
+      forgetScrollMemory(`chat:${key}`);
       // /new and /clear deliberately stay put: aim this draft at the folder
       // it is already in, so the next session lands there and not in a dated one.
       const draftWorkspaces = s.workspace
         ? { ...s.draftWorkspaces, [key]: s.workspace }
         : s.draftWorkspaces;
-      return { currentId: null, draftWorkspaces, threads, panes, sessionAgents };
+      return { currentId: null, draftWorkspaces, threads, panes, sessionAgents, clearedFrom };
     }),
 
   refreshProjects: async () => {
@@ -4571,7 +4594,15 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
   runCommand: async (name, args, sessionId, draftKey) => {
     if (name === "new" || name === "clear") {
-      get().startDraftInCurrentWorkspace(draftKey);
+      const s = get();
+      // The session being cleared: this pane's own, or (single pane) the focused
+      // one. A draft has none — then /clear keeps the conversation it showed.
+      const from = sessionId ?? (draftKey ? undefined : (s.currentId ?? undefined));
+      const key = draftKey ?? DRAFT_KEY;
+      s.startDraftInCurrentWorkspace(
+        key,
+        name === "clear" ? (from ?? s.clearedFrom[key]) : undefined,
+      );
       return null;
     }
     return performTurn(

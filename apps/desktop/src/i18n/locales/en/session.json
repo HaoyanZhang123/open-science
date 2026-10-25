@@ -160,9 +160,11 @@
     "busyCommand": "Wait for this turn to finish before running a command."
   },
   "localCommand": {
-    "newDescription": "Clear chat context in this folder",
-    "clearDescription": "Same as /new; files stay in this folder",
-    "cleared": "Chat context cleared. Files stay in the same folder."
+    "newDescription": "New conversation in this folder",
+    "clearDescription": "Clear the context; earlier messages stay visible above",
+    "clearedLabel": "Context cleared",
+    "clearedHint": "The model no longer sees the messages above",
+    "openEarlier": "Open that session"
   },
   "starters": {
     "newSession": "New session",

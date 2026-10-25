@@ -160,9 +160,11 @@
     "busyCommand": "Espera a que termine este turno para ejecutar un comando."
   },
   "localCommand": {
-    "newDescription": "Borrar el contexto del chat en esta carpeta",
-    "clearDescription": "Igual que /new; los archivos permanecen aquí",
-    "cleared": "Contexto del chat borrado. Los archivos permanecen en la misma carpeta."
+    "newDescription": "Nueva conversación en esta carpeta",
+    "clearDescription": "Borrar el contexto; los mensajes anteriores siguen visibles arriba",
+    "clearedLabel": "Contexto borrado",
+    "clearedHint": "El modelo ya no ve los mensajes de arriba",
+    "openEarlier": "Abrir esa sesión"
   },
   "starters": {
     "newSession": "Nueva sesión",

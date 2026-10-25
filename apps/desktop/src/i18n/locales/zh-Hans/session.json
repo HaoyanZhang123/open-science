@@ -160,9 +160,11 @@
     "busyCommand": "等这一轮结束再运行命令。"
   },
   "localCommand": {
-    "newDescription": "在当前文件夹内清空聊天上下文",
-    "clearDescription": "等同于 /new；文件仍保留在当前文件夹",
-    "cleared": "聊天记录已清空。文件内容仍保留在同一个文件夹下。"
+    "newDescription": "在当前文件夹开始新对话",
+    "clearDescription": "清空上下文，之前的消息仍显示在上方",
+    "clearedLabel": "上下文已清空",
+    "clearedHint": "模型看不到以上消息",
+    "openEarlier": "打开原会话"
   },
   "starters": {
     "newSession": "新建会话",
