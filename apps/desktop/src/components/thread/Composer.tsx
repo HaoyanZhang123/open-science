@@ -110,6 +110,8 @@ export interface ComposerCommand {
   source?: string;
   /** Takes no arguments, so picking it runs it — no chip to fill in first. */
   immediate?: boolean;
+  /** Listed but will not run now; the description says why. */
+  unavailable?: boolean;
 }
 
 /** The two approval modes the composer can switch between (Codex-style). Copy
@@ -164,6 +166,7 @@ export function Composer({
   currentSessionId,
   onInteract,
   onCompactContext,
+  compactRefusal,
   acceptsHandoff = true,
   visible = true,
 }: {
@@ -219,6 +222,9 @@ export function Composer({
   /** When provided, offers `/compact` (asked once before it runs). The live
    *  session wires it to `compactContext`; static mock sessions omit it. */
   onCompactContext?: () => void;
+  /** Why `/compact` would not run now (translated), or null when it would.
+   *  Asked when the palette lists it and when it is run. */
+  compactRefusal?: () => string | null;
   /** May this composer take an app-wide prepared draft (the provenance panel's
    *  "Reproduce")? Exactly one should: every pane of every screen is mounted,
    *  including hidden ones, and a draft claimed by any other lands where the
@@ -243,26 +249,37 @@ export function Composer({
       description: t("composer.approval.full.description"),
     },
   };
-  // The composer's own slash commands, listed ahead of the runtime's. Each is
-  // offered only when its surface wires it (a static mock session wires none).
-  const builtins: ComposerCommand[] = [
-    ...(agentMode && onAgentModeChange
-      ? [{ name: "plan", description: t("composer.builtin.plan"), source: "local" }]
-      : []),
-    ...(onCompactContext
-      ? [{ name: "compact", description: t("composer.builtin.compact"), source: "local", immediate: true }]
-      : []),
-  ];
-  const allCommands = [
-    ...builtins,
-    ...commands.filter((c) => !builtins.some((b) => b.name === c.name)),
-  ];
   // Reclaim whatever this pane had typed before it was last unmounted (a screen
   // switch tears panes down). Unparked once, on mount, so the two states below
   // seed from the same draft.
   const [restored] = useState(() => (draftKey ? unparkDraft(draftKey) : null));
   const [value, setValue] = useState(restored?.text ?? "");
   const [files, setFiles] = useState<string[]>(restored?.files ?? []);
+  // Listed even when it would be refused (a draft, a small context), so that
+  // "/compact" is never mistaken for prompt text — the row says why instead.
+  // The reason is only worked out while the palette could show it.
+  function compactCommand(): ComposerCommand {
+    const refusal = /^\/\S*$/.test(value) ? (compactRefusal?.() ?? null) : null;
+    return {
+      name: "compact",
+      description: refusal ?? t("composer.builtin.compact"),
+      source: "local",
+      immediate: true,
+      ...(refusal ? { unavailable: true } : {}),
+    };
+  }
+  // The composer's own slash commands, listed ahead of the runtime's. Each is
+  // offered only when its surface wires it (a static mock session wires none).
+  const builtins: ComposerCommand[] = [
+    ...(agentMode && onAgentModeChange
+      ? [{ name: "plan", description: t("composer.builtin.plan"), source: "local" }]
+      : []),
+    ...(onCompactContext ? [compactCommand()] : []),
+  ];
+  const allCommands = [
+    ...builtins,
+    ...commands.filter((c) => !builtins.some((b) => b.name === c.name)),
+  ];
   /** Of `files`, the ones this composer COPIED in — the only ones removing a
    *  chip may delete. See `addWorkspaceFile`. */
   const owned = useRef<Set<string>>(new Set());
@@ -526,7 +543,12 @@ export function Composer({
     }
     if (name === "compact" && onCompactContext) {
       // Mid-turn the runtime refuses and says why; nothing to confirm then.
-      if (working) onCompactContext();
+      if (working) {
+        onCompactContext();
+        return true;
+      }
+      const refusal = compactRefusal?.();
+      if (refusal) toast.info(refusal);
       else setConfirmCompact(true);
       return true;
     }
@@ -1036,7 +1058,9 @@ export function Composer({
                 pick(c);
               }}
             >
-              <span className="shrink-0 font-mono text-xs text-text">/{c.name}</span>
+              <span className={cn("shrink-0 font-mono text-xs", c.unavailable ? "text-muted" : "text-text")}>
+                /{c.name}
+              </span>
               {c.description && (
                 <span className="min-w-0 flex-1 truncate text-xs text-muted">{c.description}</span>
               )}

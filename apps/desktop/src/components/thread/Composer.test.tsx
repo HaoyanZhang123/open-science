@@ -1,3 +1,4 @@
+import { useToastStore } from "@/lib/toast";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -612,6 +613,30 @@ describe("Composer per-pane draft (#91)", () => {
 
       expect(onCompactContext).not.toHaveBeenCalled();
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    it("refuses with the reason instead of asking, and is not sent as a prompt", () => {
+      const onCompactContext = vi.fn();
+      const onSend = vi.fn();
+      const reason = "Only 42k of context in use; compacting starts at 100k";
+      render(
+        <Composer
+          onSend={onSend}
+          onRunCommand={vi.fn()}
+          onCompactContext={onCompactContext}
+          compactRefusal={() => reason}
+        />,
+      );
+      // The palette says why before it is even picked.
+      fireEvent.change(input(), { target: { value: "/comp" } });
+      expect(screen.getByRole("option", { name: new RegExp(reason) })).toBeInTheDocument();
+
+      compact();
+      expect(useToastStore.getState().toasts.slice(-1)[0]).toMatchObject({ tone: "info", message: reason });
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(onCompactContext).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+      expect(input().value).toBe("");
     });
   });
 });

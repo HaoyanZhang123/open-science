@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "压缩上下文？",
       "confirmBody": "先前的对话会被替换为一段摘要，让接下来的回复在有限的上下文里运行。完整的原始对话仍然保存在本地。",
-      "confirmAction": "压缩"
+      "confirmAction": "压缩",
+      "empty": "还没有对话，无需压缩",
+      "justCompacted": "刚压缩过，之后还没有新对话",
+      "small": "上下文才用了 {{used}}，满 {{threshold}} 才需要压缩"
     },
     "builtin": {
       "plan": "计划模式：先调研、写出计划，不改文件；/plan off 退出",
@@ -164,7 +167,9 @@
     "clearDescription": "清空上下文，之前的消息仍显示在上方",
     "clearedLabel": "上下文已清空",
     "clearedHint": "模型看不到以上消息",
-    "openEarlier": "打开原会话"
+    "openEarlier": "打开原会话",
+    "olderCleared_other": "更早还有 {{count}} 段清空前的对话",
+    "showOlder": "显示"
   },
   "starters": {
     "newSession": "新建会话",

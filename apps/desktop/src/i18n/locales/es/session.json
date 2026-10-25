@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "¿Compactar el contexto?",
       "confirmBody": "Los turnos anteriores se sustituyen por un resumen para que la siguiente respuesta funcione con un contexto acotado. La conversación original completa sigue guardada localmente.",
-      "confirmAction": "Compactar"
+      "confirmAction": "Compactar",
+      "empty": "Todavía no hay conversación que compactar",
+      "justCompacted": "Recién compactado: nada nuevo desde entonces",
+      "small": "Solo {{used}} de contexto en uso; se compacta a partir de {{threshold}}"
     },
     "builtin": {
       "plan": "Modo plan: investigar y escribir un plan antes de cambiar archivos. /plan off para salir",
@@ -164,7 +167,10 @@
     "clearDescription": "Borrar el contexto; los mensajes anteriores siguen visibles arriba",
     "clearedLabel": "Contexto borrado",
     "clearedHint": "El modelo ya no ve los mensajes de arriba",
-    "openEarlier": "Abrir esa sesión"
+    "openEarlier": "Abrir esa sesión",
+    "olderCleared_one": "{{count}} conversación borrada anterior",
+    "olderCleared_other": "{{count}} conversaciones borradas anteriores",
+    "showOlder": "Mostrar"
   },
   "starters": {
     "newSession": "Nueva sesión",

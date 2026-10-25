@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "Kontext verdichten?",
       "confirmBody": "Die bisherigen Züge werden durch eine Zusammenfassung ersetzt, damit die nächste Antwort in einem begrenzten Kontext läuft. Das vollständige Originalgespräch bleibt lokal gespeichert.",
-      "confirmAction": "Verdichten"
+      "confirmAction": "Verdichten",
+      "empty": "Noch kein Gespräch zum Komprimieren",
+      "justCompacted": "Gerade komprimiert – seitdem nichts Neues",
+      "small": "Erst {{used}} Kontext belegt; komprimiert wird ab {{threshold}}"
     },
     "builtin": {
       "plan": "Planmodus: erst recherchieren und planen, keine Dateien ändern. /plan off beendet",
@@ -164,7 +167,10 @@
     "clearDescription": "Kontext leeren; frühere Nachrichten bleiben oben sichtbar",
     "clearedLabel": "Kontext geleert",
     "clearedHint": "Das Modell sieht die Nachrichten oberhalb nicht mehr",
-    "openEarlier": "Diese Sitzung öffnen"
+    "openEarlier": "Diese Sitzung öffnen",
+    "olderCleared_one": "{{count}} früheres geleertes Gespräch",
+    "olderCleared_other": "{{count}} frühere geleerte Gespräche",
+    "showOlder": "Anzeigen"
   },
   "starters": {
     "newSession": "Neue Sitzung",

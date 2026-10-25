@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "コンテキストを圧縮しますか？",
       "confirmBody": "これまでのやり取りは要約に置き換えられ、次の応答は限られたコンテキストで実行されます。元の会話全体はローカルに保存されたままです。",
-      "confirmAction": "圧縮"
+      "confirmAction": "圧縮",
+      "empty": "まだ圧縮する会話がありません",
+      "justCompacted": "圧縮したばかりで、その後の会話がありません",
+      "small": "使用中の文脈は {{used}} だけです。圧縮は {{threshold}} から"
     },
     "builtin": {
       "plan": "計画モード：ファイルを変更せず、調査して計画を書く。/plan off で終了",
@@ -164,7 +167,9 @@
     "clearDescription": "文脈を消去。以前のメッセージは上に表示されたまま",
     "clearedLabel": "文脈を消去しました",
     "clearedHint": "モデルには上のメッセージは見えません",
-    "openEarlier": "元のセッションを開く"
+    "openEarlier": "元のセッションを開く",
+    "olderCleared_other": "さらに前に消去した会話が {{count}} 件",
+    "showOlder": "表示"
   },
   "starters": {
     "newSession": "新規セッション",

@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "컨텍스트를 압축할까요?",
       "confirmBody": "이전 대화는 요약으로 대체되어 다음 응답이 제한된 컨텍스트에서 실행됩니다. 전체 원본 대화는 로컬에 그대로 저장됩니다.",
-      "confirmAction": "압축"
+      "confirmAction": "압축",
+      "empty": "아직 압축할 대화가 없습니다",
+      "justCompacted": "방금 압축했고 그 뒤로 새 대화가 없습니다",
+      "small": "사용 중인 컨텍스트가 {{used}}뿐입니다. 압축은 {{threshold}}부터"
     },
     "builtin": {
       "plan": "계획 모드: 파일을 바꾸기 전에 조사하고 계획을 작성합니다. /plan off로 종료",
@@ -164,7 +167,9 @@
     "clearDescription": "컨텍스트를 지웁니다. 이전 메시지는 위에 계속 표시됩니다",
     "clearedLabel": "컨텍스트를 지웠습니다",
     "clearedHint": "모델은 위의 메시지를 보지 못합니다",
-    "openEarlier": "이전 세션 열기"
+    "openEarlier": "이전 세션 열기",
+    "olderCleared_other": "이전에 지운 대화 {{count}}개 더",
+    "showOlder": "표시"
   },
   "starters": {
     "newSession": "새 세션",

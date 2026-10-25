@@ -42,6 +42,8 @@ import { useWheelChain } from "@/lib/wheelChain";
 import { BlockList, type BlockHandlers } from "@/components/thread/BlockList";
 import { TurnNavigator } from "@/components/thread/TurnNavigator";
 import { ClearedHistory } from "@/components/thread/ClearedHistory";
+import { formatTokens } from "@/components/thread/MessageMeta";
+import { compactRefusal } from "@/lib/compactGate";
 import { TrajectoryPane } from "@/components/thread/TrajectoryPane";
 import { IconBranchOutlineRegular } from "@/components/icons/dsh";
 import { SubagentPane } from "@/components/thread/SubagentPane";
@@ -309,6 +311,14 @@ export function SessionView({
       bindSession(leafId, null);
       if (focused) navigate("/live");
     } else bindIfCreated(created);
+  };
+  // Why /compact would not run on this pane now, in words (null = it would).
+  const compactRefusalText = (blocks: ThreadBlocks | undefined): string | null => {
+    const r = compactRefusal(blocks, contextLimit);
+    if (!r) return null;
+    if (r.kind === "small")
+      return t("composer.compact.small", { used: formatTokens(r.used), threshold: formatTokens(r.threshold) });
+    return t(r.kind === "empty" ? "composer.compact.empty" : "composer.compact.justCompacted");
   };
   // Show another session in this pane (the earlier half of a /clear).
   const onOpenSession = useCallback(
@@ -1149,7 +1159,14 @@ export function SessionView({
                     : undefined
                 }
                 modelSessionId={key}
-                onCompactContext={connected && !webReadOnly && eid ? () => void compactContext(eid) : undefined}
+                onCompactContext={
+                  connected && !webReadOnly
+                    ? () => {
+                        if (eid) void compactContext(eid);
+                      }
+                    : undefined
+                }
+                compactRefusal={() => compactRefusalText(eid ? useRuntimeStore.getState().threads[key]?.blocks : undefined)}
                 // Only the pane the user is looking at may take a prepared draft.
                 acceptsHandoff={focused}
                 visible={laidOut}
@@ -1349,7 +1366,6 @@ function ThreadColumn({
   const isEmpty = !thread || thread.blocks.length === 0;
   // The conversation /clear cleared, kept above this one.
   const clearedFrom = useRuntimeStore((s) => s.clearedFrom[k]);
-  const clearedExists = useRuntimeStore((s) => !!clearedFrom && s.sessions.some((x) => x.id === clearedFrom));
   // Scan backwards in place: copying + reversing the whole block list ran on
   // every render of a live pane, allocating a fresh array per streamed token.
   const currentTool = working ? findLastRunningTool(thread?.blocks) : undefined;
@@ -1375,12 +1391,7 @@ function ThreadColumn({
         <WorkflowStarters onPick={(p) => void onSend(p)} showCards={roomForStarters} />
       )}
       {clearedFrom && (
-        <ClearedHistory
-          sessionId={clearedFrom}
-          connected={connected}
-          handlers={handlers}
-          onOpen={clearedExists ? () => onOpenSession(clearedFrom) : undefined}
-        />
+        <ClearedHistory from={clearedFrom} connected={connected} handlers={handlers} onOpen={onOpenSession} />
       )}
       {historyLoading && <ThreadSkeleton />}
       {!historyLoading && thread && (

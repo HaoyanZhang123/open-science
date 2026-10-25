@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "Compact the context?",
       "confirmBody": "The earlier turns are replaced with a summary so the next reply runs on a bounded context. The full original conversation is still stored locally.",
-      "confirmAction": "Compact"
+      "confirmAction": "Compact",
+      "empty": "No conversation to compact yet",
+      "justCompacted": "Just compacted — nothing new to compact since",
+      "small": "Only {{used}} of context in use; compacting starts at {{threshold}}"
     },
     "builtin": {
       "plan": "Plan mode: research and write a plan before changing files. /plan off leaves",
@@ -164,7 +167,10 @@
     "clearDescription": "Clear the context; earlier messages stay visible above",
     "clearedLabel": "Context cleared",
     "clearedHint": "The model no longer sees the messages above",
-    "openEarlier": "Open that session"
+    "openEarlier": "Open that session",
+    "olderCleared_one": "{{count}} earlier cleared conversation",
+    "olderCleared_other": "{{count}} earlier cleared conversations",
+    "showOlder": "Show"
   },
   "starters": {
     "newSession": "New session",

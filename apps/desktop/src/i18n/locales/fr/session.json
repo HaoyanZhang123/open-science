@@ -135,7 +135,10 @@
     "compact": {
       "confirmTitle": "Compacter le contexte ?",
       "confirmBody": "Les échanges précédents sont remplacés par un résumé afin que la prochaine réponse s'exécute dans un contexte borné. La conversation d'origine complète reste stockée localement.",
-      "confirmAction": "Compacter"
+      "confirmAction": "Compacter",
+      "empty": "Pas encore de conversation à compacter",
+      "justCompacted": "Compacté à l'instant — rien de nouveau depuis",
+      "small": "Seulement {{used}} de contexte utilisé ; le compactage commence à {{threshold}}"
     },
     "builtin": {
       "plan": "Mode plan : explorer et rédiger un plan avant de modifier des fichiers. /plan off pour quitter",
@@ -164,7 +167,10 @@
     "clearDescription": "Effacer le contexte ; les messages précédents restent visibles au-dessus",
     "clearedLabel": "Contexte effacé",
     "clearedHint": "Le modèle ne voit plus les messages ci-dessus",
-    "openEarlier": "Ouvrir cette session"
+    "openEarlier": "Ouvrir cette session",
+    "olderCleared_one": "{{count}} conversation effacée plus ancienne",
+    "olderCleared_other": "{{count}} conversations effacées plus anciennes",
+    "showOlder": "Afficher"
   },
   "starters": {
     "newSession": "Nouvelle session",
