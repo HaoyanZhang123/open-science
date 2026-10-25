@@ -225,8 +225,21 @@ export function TerminalPane({
       // this a dozen times per terminal; each call re-measures the DOM
       // synchronously and used to cross into Rust for a PTY ioctl, so a window
       // with a few terminals in it visibly stuttered for the whole animation.
+      //
+      // The shell hears only the grid the pane SETTLES on. Claude Code and
+      // Codex repaint their whole conversation on every width change and never
+      // clear the scrollback, so an animation that walks the width down one
+      // column per frame left a dozen stacked copies of it above the prompt.
+      // xterm still refits every frame; only the PTY waits for a quiet moment.
       let queued = 0;
+      let settle: ReturnType<typeof setTimeout> | undefined;
       let sent = { cols: term.cols, rows: term.rows };
+      const tellShell = () => {
+        settle = undefined;
+        if (term.cols === sent.cols && term.rows === sent.rows) return;
+        sent = { cols: term.cols, rows: term.rows };
+        void terminalTransport.resize(leafId, term.cols, term.rows);
+      };
       const observer = new ResizeObserver(() => {
         if (queued) return;
         queued = requestAnimationFrame(() => {
@@ -240,9 +253,8 @@ export function TerminalPane({
           )
             return;
           fit.fit();
-          if (term.cols === sent.cols && term.rows === sent.rows) return;
-          sent = { cols: term.cols, rows: term.rows };
-          void terminalTransport.resize(leafId, term.cols, term.rows);
+          clearTimeout(settle);
+          settle = setTimeout(tellShell, RESIZE_SETTLE_MS);
         });
       });
       observer.observe(container);
@@ -268,6 +280,7 @@ export function TerminalPane({
           links.dispose();
           observer.disconnect();
           if (queued) cancelAnimationFrame(queued);
+          clearTimeout(settle);
         },
       });
       if (disposed) container.remove();
@@ -431,6 +444,10 @@ interface FindControls {
 
 /** The find bar of whichever component currently shows each terminal. */
 const findControls = new Map<string, FindControls>();
+
+/** How long the pane must hold still before the shell is told its new size:
+ *  longer than a frame, shorter than a person notices after letting go. */
+const RESIZE_SETTLE_MS = 150;
 
 /**
  * Terminal defaults, borrowed from Orca's `lib/pane-manager/pane-terminal-options.ts`
