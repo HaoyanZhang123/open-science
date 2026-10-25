@@ -208,9 +208,28 @@ export function LiveSessionPage() {
   }, [runningCount, reconcileRunning]);
 
   // Drop tiled panes whose session was deleted, collapsing toward one pane.
+  // The list is only a recent window (and can come back partial while the
+  // runtime starts), so a pane's session missing from it is asked about
+  // directly; only a confirmed deletion closes the pane.
   useEffect(() => {
     if (sessions.length === 0) return;
-    pruneSessions(new Set(sessions.map((s) => s.id)));
+    const listed = new Set(sessions.map((s) => s.id));
+    const missing = new Set<string>();
+    for (const g of useLayoutStore.getState().groups) {
+      if (!g.tree) continue;
+      for (const l of leaves(g.tree)) if (l.sessionId && !listed.has(l.sessionId)) missing.add(l.sessionId);
+    }
+    if (missing.size === 0) return;
+    let cancelled = false;
+    void useRuntimeStore
+      .getState()
+      .findDeletedSessions([...missing])
+      .then((gone) => {
+        if (!cancelled && gone.size > 0) pruneSessions(gone);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [sessions, pruneSessions]);
 
   // File Screens under their projects once both lists are in: Screens saved
