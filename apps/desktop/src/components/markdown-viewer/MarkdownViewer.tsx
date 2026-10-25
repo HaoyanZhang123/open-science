@@ -121,7 +121,7 @@ export function MarkdownViewer({
   const normalized = useMemo(() => normalizeMathDelimiters(children), [children]);
   const plugins = useMemo(() => pluginsFor(normalized), [normalized]);
   return (
-    <div className={cn(s.root, className)}>
+    <div className={cn("select-text", s.root, className)}>
       {/* Math (KaTeX) — $…$/$$…$$ natively, \(…\)/\[…\] via the normalization
           above. `throwOnError: false` keeps a malformed expression from
           blanking the whole message — it shows the source in red instead. Both

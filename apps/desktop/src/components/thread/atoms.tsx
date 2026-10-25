@@ -174,7 +174,7 @@ export const UserMessage = memo(function UserMessage({
   return (
     <div {...{ [HOVER_HOST]: "" }} className="relative flex flex-col items-end">
       {sender && <SenderBadge sender={sender} className="mb-1" />}
-      <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
+      <div className="w-fit max-w-[85%] select-text whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
         {block.text}
       </div>
       <div
