@@ -50,8 +50,14 @@ impl Client {
     /// app is open, which is the common case on a laptop.
     pub fn connect(args: &Args) -> Result<Client, String> {
         let (base, token, origin) = resolve(args)?;
-        let http = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(120))
+        let mut builder = reqwest::blocking::Client::builder().timeout(Duration::from_secs(120));
+        // reqwest honours HTTP_PROXY but not loopback: with a local proxy set and
+        // NO_PROXY not naming 127.0.0.1, the request to THIS machine's gateway
+        // went to the proxy, which answered 502.
+        if is_loopback(&base) {
+            builder = builder.no_proxy();
+        }
+        let http = builder
             .build()
             .map_err(|e| e.to_string())?;
         let via = std::env::var("OSD_ORIGIN_SESSION")
@@ -181,6 +187,20 @@ fn check_url(base: &str) -> Result<String, String> {
     ))
 }
 
+/// Whether `base` points at this machine (127.0.0.0/8, ::1, localhost).
+fn is_loopback(base: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base) else { return false };
+    match url.host_str() {
+        Some("localhost") => true,
+        Some(host) => host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+        None => false,
+    }
+}
+
 fn resolve(args: &Args) -> Result<(String, String, String), String> {
     if let Some(base) = args.value("gateway").or_else(|| env_var("OSD_GATEWAY")) {
         let base = check_url(&base)?;
@@ -272,4 +292,19 @@ pub fn save_login(base: &str, token: &str) -> Result<PathBuf, String> {
     // The token is a credential for the whole workbench.
     osd_core::runtime::tighten_private(&path);
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_loopback;
+
+    #[test]
+    fn loopback_gateways_skip_the_proxy() {
+        assert!(is_loopback("http://127.0.0.1:4098"));
+        assert!(is_loopback("http://localhost:4098/"));
+        assert!(is_loopback("http://[::1]:4098"));
+        assert!(!is_loopback("https://osd.example.com"));
+        assert!(!is_loopback("http://100.68.102.13:4098"));
+        assert!(!is_loopback("not a url"));
+    }
 }
