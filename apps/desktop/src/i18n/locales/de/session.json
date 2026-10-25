@@ -79,20 +79,6 @@
     "send": {
       "aria": "Senden"
     },
-    "agent": {
-      "aria": "Agentenmodus",
-      "title": "Erst planen oder direkt umsetzen",
-      "menuAria": "Agentenmodi",
-      "menuTitle": "Wie soll der Agent arbeiten?",
-      "build": {
-        "label": "Umsetzen",
-        "description": "Bearbeitet Dateien und führt Befehle aus"
-      },
-      "plan": {
-        "label": "Planen",
-        "description": "Nur lesen: recherchiert und schreibt zuerst einen Plan"
-      }
-    },
     "approval": {
       "aria": "Genehmigungsmodus",
       "title": "Wie Agentenaktionen genehmigt werden",
@@ -147,12 +133,31 @@
       "removeAria": "Verweis auf {{title}} entfernen"
     },
     "compact": {
-      "aria": "Kontext komprimieren",
-      "title": "Fasst frühere Turns zusammen; die nächste Antwort nutzt den komprimierten Kontext",
       "confirmTitle": "Kontext verdichten?",
       "confirmBody": "Die bisherigen Züge werden durch eine Zusammenfassung ersetzt, damit die nächste Antwort in einem begrenzten Kontext läuft. Das vollständige Originalgespräch bleibt lokal gespeichert.",
       "confirmAction": "Verdichten"
-    }
+    },
+    "builtin": {
+      "plan": "Planmodus: erst recherchieren und planen, keine Dateien ändern. /plan off beendet",
+      "compact": "Kontext komprimieren: frühere Unterhaltung zusammenfassen"
+    },
+    "planMode": {
+      "label": "Planmodus",
+      "title": "Der Agent recherchiert und schreibt einen Plan; er ändert keine Dateien. Shift+Tab oder /plan off beendet",
+      "exitAria": "Planmodus beenden"
+    },
+    "queue": {
+      "aria": "Wartende Nachrichten",
+      "edit": "Wartende Nachricht bearbeiten",
+      "save": "Speichern",
+      "cancelEdit": "Bearbeiten abbrechen",
+      "remove": "Wartende Nachricht entfernen",
+      "steer": "Jetzt einschieben",
+      "sendNow": "Jetzt senden",
+      "add": "Nachricht einreihen",
+      "addTitle": "Nach diesem Durchgang senden (Enter) · Cmd/Strg+Enter schiebt sie jetzt ein"
+    },
+    "busyCommand": "Warte, bis dieser Durchgang fertig ist, bevor du einen Befehl ausführst."
   },
   "localCommand": {
     "newDescription": "Chat-Kontext in diesem Ordner leeren",
@@ -244,7 +249,10 @@
       "starting": "Runtime wird gestartet…",
       "disconnected": "Zum Chatten verbinden",
       "waiting": "Warte auf die Antwort…",
-      "readOnly": "Nur-Lese-Zugriff — nur Ansicht"
+      "readOnly": "Nur-Lese-Zugriff — nur Ansicht",
+      "queue": "Enter reiht für danach ein, Cmd/Strg+Enter schiebt jetzt ein",
+      "steerQueue": "Cmd/Strg+Enter schiebt alle wartenden Nachrichten jetzt ein",
+      "compacting": "Kontext wird komprimiert…"
     }
   },
   "tool": {

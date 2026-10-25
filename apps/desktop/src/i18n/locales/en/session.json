@@ -79,20 +79,6 @@
     "send": {
       "aria": "Send"
     },
-    "agent": {
-      "aria": "Agent mode",
-      "title": "Plan first or build right away",
-      "menuAria": "Agent modes",
-      "menuTitle": "How should the agent work?",
-      "build": {
-        "label": "Build",
-        "description": "Edits files and runs commands"
-      },
-      "plan": {
-        "label": "Plan",
-        "description": "Read-only: researches and writes a plan file first"
-      }
-    },
     "approval": {
       "aria": "Approval mode",
       "title": "How agent actions get approved",
@@ -147,12 +133,31 @@
       "removeAria": "Remove the reference to {{title}}"
     },
     "compact": {
-      "aria": "Compress context",
-      "title": "Summarize the earlier turns so the next reply runs on a bounded context",
       "confirmTitle": "Compact the context?",
       "confirmBody": "The earlier turns are replaced with a summary so the next reply runs on a bounded context. The full original conversation is still stored locally.",
       "confirmAction": "Compact"
-    }
+    },
+    "builtin": {
+      "plan": "Plan mode: research and write a plan before changing files. /plan off leaves",
+      "compact": "Compress context: summarize the earlier conversation"
+    },
+    "planMode": {
+      "label": "Plan mode",
+      "title": "The agent researches and writes a plan; it does not edit files. Shift+Tab or /plan off leaves",
+      "exitAria": "Leave plan mode"
+    },
+    "queue": {
+      "aria": "Queued messages",
+      "edit": "Edit queued message",
+      "save": "Save",
+      "cancelEdit": "Cancel editing",
+      "remove": "Remove queued message",
+      "steer": "Steer in now",
+      "sendNow": "Send now",
+      "add": "Queue message",
+      "addTitle": "Queue for after this turn (Enter) · Cmd/Ctrl+Enter steers it in now"
+    },
+    "busyCommand": "Wait for this turn to finish before running a command."
   },
   "localCommand": {
     "newDescription": "Clear chat context in this folder",
@@ -244,7 +249,10 @@
       "starting": "Starting the runtime…",
       "disconnected": "Connect to chat",
       "waiting": "Waiting for the reply…",
-      "readOnly": "Read-only access — viewing only"
+      "readOnly": "Read-only access — viewing only",
+      "queue": "Enter queues for after this turn, Cmd/Ctrl+Enter steers in now",
+      "steerQueue": "Cmd/Ctrl+Enter steers all queued messages in now",
+      "compacting": "Compressing context…"
     }
   },
   "tool": {

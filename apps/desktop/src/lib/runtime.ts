@@ -481,6 +481,18 @@ interface RuntimeState {
   /** Sessions with an active turn (send accepted, session.idle not yet seen).
    *  Drives the composer lock and the "Working…" indicator. */
   runningSessions: Record<string, true>;
+  /** Messages queued per session while its turn runs, oldest first. When a
+   *  turn ends on its own the head is sent as the next turn; a stopped or
+   *  failed turn holds the queue until the user sends or removes it. Memory
+   *  only — like an unsent draft, it does not survive a restart. */
+  queuedPrompts: Record<string, QueuedPrompt[]>;
+  enqueuePrompt: (sessionId: string, text: string, attachments?: string[]) => void;
+  editQueuedPrompt: (sessionId: string, id: string, text: string) => void;
+  removeQueuedPrompt: (sessionId: string, id: string) => void;
+  /** Send a queued message now — or, with no `id`, the whole queue as one
+   *  message. Mid-turn this steers: OpenCode picks a message sent into a
+   *  running session up at the turn's next step. */
+  sendQueuedPrompt: (sessionId: string, id?: string) => void;
   /** Current model-step number per running session (from `step.updated`), so the
    *  working indicator can show "step N" — proof the turn is progressing, not
    *  hung. Reset when a turn starts and cleared on idle. */
@@ -993,6 +1005,15 @@ export async function startSessionScreen(projectId: string): Promise<void> {
 /** The composer's agent switch: "build" edits and runs; "plan" is OpenCode's
  *  read-only planning agent (edits denied except its plan .md file). */
 export type AgentMode = "build" | "plan";
+
+/** A message typed while its session's turn was running (Enter while busy).
+ *  `attachments` are the composer's chip names, as `sendPrompt` takes them. */
+export interface QueuedPrompt {
+  id: string;
+  text: string;
+  attachments?: string[];
+}
+let queueSeq = 0;
 /** One bounded retry for the first POSTs after a sidecar restart — the old
  *  connection occasionally dies mid-handshake ("Load failed"). */
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -2700,6 +2721,56 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   sending: false,
   sendingSessions: {},
   runningSessions: {},
+  queuedPrompts: {},
+  enqueuePrompt: (sessionId, text, attachments) =>
+    set((s) => ({
+      queuedPrompts: {
+        ...s.queuedPrompts,
+        [sessionId]: [
+          ...(s.queuedPrompts[sessionId] ?? []),
+          // A counter, not crypto.randomUUID: that is missing on a plain-http
+          // page, and the web client is opened over http from phones.
+          { id: `q${++queueSeq}`, text, ...(attachments ? { attachments } : {}) },
+        ],
+      },
+    })),
+  editQueuedPrompt: (sessionId, id, text) =>
+    set((s) => ({
+      queuedPrompts: {
+        ...s.queuedPrompts,
+        [sessionId]: (s.queuedPrompts[sessionId] ?? []).map((q) => (q.id === id ? { ...q, text } : q)),
+      },
+    })),
+  removeQueuedPrompt: (sessionId, id) =>
+    set((s) => ({
+      queuedPrompts: {
+        ...s.queuedPrompts,
+        [sessionId]: (s.queuedPrompts[sessionId] ?? []).filter((q) => q.id !== id),
+      },
+    })),
+  sendQueuedPrompt: (sessionId, id) => {
+    // A send already in flight for this session would make sendPrompt drop
+    // this one silently (one send at a time per session) — so it stays queued.
+    if (get().sendingSessions[sessionId]) return;
+    const queue = get().queuedPrompts[sessionId] ?? [];
+    // Already sent (the turn-end drain and a click can race) — never twice.
+    const items = id === undefined ? queue : queue.filter((q) => q.id === id);
+    if (items.length === 0) return;
+    const sent = new Set(items.map((q) => q.id));
+    set((s) => ({
+      queuedPrompts: {
+        ...s.queuedPrompts,
+        [sessionId]: (s.queuedPrompts[sessionId] ?? []).filter((q) => !sent.has(q.id)),
+      },
+    }));
+    const attachments = items.flatMap((q) => q.attachments ?? []);
+    void get().sendPrompt(
+      items.map((q) => q.text).join("\n\n"),
+      sessionId,
+      undefined,
+      attachments.length > 0 ? attachments : undefined,
+    );
+  },
   stepCounts: {},
   shellTurns: {},
   retryNotices: {},
@@ -4906,6 +4977,20 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     }
   },
 }));
+
+// A turn that ends on its own sends the next queued message, one per turn. A
+// stopped or failed one does not: the user stopped for a reason, and a queue
+// fired into a failing provider would only fail again. Those queues stay put
+// for the user to send or remove.
+useRuntimeStore.subscribe((s, prev) => {
+  if (s.runningSessions === prev.runningSessions) return;
+  for (const sid of Object.keys(prev.runningSessions)) {
+    if (s.runningSessions[sid] || interruptedSessions.has(sid) || erroredSessions.has(sid)) continue;
+    const head = s.queuedPrompts[sid]?.[0];
+    // Outside the listener: sending sets state, and this one is mid-dispatch.
+    if (head) queueMicrotask(() => useRuntimeStore.getState().sendQueuedPrompt(sid, head.id));
+  }
+});
 
 /**
  * Is this Screen a new conversation nobody has touched — nothing sent or

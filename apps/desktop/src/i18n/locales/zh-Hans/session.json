@@ -79,20 +79,6 @@
     "send": {
       "aria": "发送"
     },
-    "agent": {
-      "aria": "代理模式",
-      "title": "先规划还是直接执行",
-      "menuAria": "代理模式",
-      "menuTitle": "让代理怎么工作？",
-      "build": {
-        "label": "执行",
-        "description": "编辑文件并运行命令"
-      },
-      "plan": {
-        "label": "规划",
-        "description": "只读：先调研并写出计划文件"
-      }
-    },
     "approval": {
       "aria": "审批模式",
       "title": "代理操作如何获得批准",
@@ -147,12 +133,31 @@
       "removeAria": "移除对「{{title}}」的引用"
     },
     "compact": {
-      "aria": "压缩上下文",
-      "title": "把较早的对话总结掉，让下一条回复在受控的上下文上运行",
       "confirmTitle": "压缩上下文？",
       "confirmBody": "先前的对话会被替换为一段摘要，让接下来的回复在有限的上下文里运行。完整的原始对话仍然保存在本地。",
       "confirmAction": "压缩"
-    }
+    },
+    "builtin": {
+      "plan": "计划模式：先调研、写出计划，不改文件；/plan off 退出",
+      "compact": "压缩上下文：把较早的对话总结成摘要"
+    },
+    "planMode": {
+      "label": "计划模式",
+      "title": "智能体只调研并写出计划，不改动文件。Shift+Tab 或 /plan off 退出",
+      "exitAria": "退出计划模式"
+    },
+    "queue": {
+      "aria": "排队消息",
+      "edit": "编辑排队消息",
+      "save": "保存",
+      "cancelEdit": "取消编辑",
+      "remove": "删除排队消息",
+      "steer": "立即插话发送",
+      "sendNow": "立即发送",
+      "add": "排队发送",
+      "addTitle": "本轮结束后发送（Enter）· Cmd/Ctrl+Enter 立即插话"
+    },
+    "busyCommand": "等这一轮结束再运行命令。"
   },
   "localCommand": {
     "newDescription": "在当前文件夹内清空聊天上下文",
@@ -244,7 +249,10 @@
       "starting": "正在启动运行时…",
       "disconnected": "连接以开始聊天",
       "waiting": "等待回复…",
-      "readOnly": "只读访问——仅可查看"
+      "readOnly": "只读访问——仅可查看",
+      "queue": "Enter 排队到本轮之后，Cmd/Ctrl+Enter 立即插话",
+      "steerQueue": "Cmd/Ctrl+Enter 插话发送全部排队消息",
+      "compacting": "正在压缩上下文…"
     }
   },
   "tool": {

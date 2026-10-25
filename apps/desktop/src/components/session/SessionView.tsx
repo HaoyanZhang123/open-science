@@ -48,6 +48,7 @@ import { SelectionActions } from "@/components/thread/SelectionActions";
 import { Elapsed } from "@/components/thread/ToolGroup";
 import { LiveLine, latestLine } from "@/components/thread/LiveLine";
 import { Composer } from "@/components/thread/Composer";
+import { QueueDock } from "@/components/thread/QueueDock";
 import { GoalPill } from "@/components/thread/GoalPill";
 import { GOAL_RESUME_NUDGE } from "@/lib/goalPrompts";
 import { baseName } from "@/components/thread/WorkspaceChip";
@@ -203,6 +204,9 @@ export function SessionView({
   // of those repaints.
   const contextLimit = useRuntimeStore((s) => contextLimitFor(s, key));
   const compacting = useRuntimeStore((s) => !!s.compactingSessions[key]);
+  const queued = useRuntimeStore((s) => !!eid && (s.queuedPrompts[eid]?.length ?? 0) > 0);
+  const enqueuePrompt = useRuntimeStore((s) => s.enqueuePrompt);
+  const sendQueuedPrompt = useRuntimeStore((s) => s.sendQueuedPrompt);
   const compactContext = useRuntimeStore((s) => s.compactContext);
   const serverUrl = useRuntimeStore((s) => s.serverUrl);
   const sessions = useRuntimeStore((s) => s.sessions);
@@ -1080,58 +1084,70 @@ export function SessionView({
                 onPermission={(id, reply) => void replyPermission(id, reply)}
               />
             )}
-            <Composer
-              onSend={onSend}
-              onRunShell={(c) => void onRunShell(c)}
-              onRunCommand={(n, a) => void onRunCommand(n, a)}
-              onInteract={pinEphemeral}
-              commands={composerCommands}
-              disabled={!connected || working || webReadOnly}
-              working={running}
-              onStop={() => void interrupt(sid ?? undefined)}
-              placeholder={
-                webReadOnly
-                  ? t("live.placeholder.readOnly")
-                  : working
-                    ? t("live.placeholder.waiting")
-                    : connecting
-                      ? t("live.placeholder.starting")
-                      : !connected
-                        ? t("live.placeholder.disconnected")
-                        : planAvailable && agentMode === "plan"
-                          ? t("composer.placeholder.plan")
-                          : t("composer.placeholder.default")
-              }
-              // Both switches belong to the OpenCode runtime: the approval mode is
-              // its config (an ACP agent asks for permission on its own terms),
-              // and the model picker sends a per-turn model ACP v1 has no way to
-              // honour — the agent owns its model. Withheld rather than shown
-              // doing nothing (#14).
-              approvalMode={acp ? undefined : approvalMode}
-              onApprovalModeChange={acp ? undefined : (mode) => void setApprovalMode(mode)}
-              agentMode={planAvailable ? agentMode : undefined}
-              onAgentModeChange={planAvailable ? (mode) => setAgentMode(mode, key) : undefined}
-              showModelPicker={connected && !webReadOnly && !acp}
-              // The ACP agent's own selectors stand in for the model picker: the
-              // agent owns its model list, and `session/set_config_option` is how
-              // v1 changes it.
-              configOptions={acp && !webReadOnly ? (acpConfigOptions[key] ?? []) : undefined}
-              onConfigOption={
-                acp && sid
-                  ? (configId, value) => void setAcpConfigOption(sid, configId, value)
-                  : undefined
-              }
-              modelSessionId={key}
-              onCompactContext={connected && !webReadOnly && eid ? () => void compactContext(eid) : undefined}
-              compacting={compacting}
-              // Only the pane the user is looking at may take a prepared draft.
-              acceptsHandoff={focused}
-              visible={laidOut}
-              draftKey={draftKey}
-              showWorkspaceChip={eid === null}
-              sessionDir={sessionDir ?? undefined}
-              currentSessionId={eid}
-            />
+            {/* One unit: the queue strip sits flush on the composer's top edge,
+                outside the space-y gap. */}
+            <div>
+              {eid && <QueueDock sessionId={eid} />}
+              <Composer
+                onSend={onSend}
+                // Typing on while the agent works: Enter queues for after the
+                // turn, Cmd/Ctrl+Enter steers in now (the plain send above).
+                onQueue={eid ? (text, files) => enqueuePrompt(eid, text, files) : undefined}
+                onSteerQueued={eid ? () => sendQueuedPrompt(eid) : undefined}
+                onRunShell={(c) => void onRunShell(c)}
+                onRunCommand={(n, a) => void onRunCommand(n, a)}
+                onInteract={pinEphemeral}
+                commands={composerCommands}
+                disabled={!connected || sending || compacting || webReadOnly}
+                working={running}
+                onStop={() => void interrupt(sid ?? undefined)}
+                placeholder={
+                  webReadOnly
+                    ? t("live.placeholder.readOnly")
+                    : compacting
+                      ? t("live.placeholder.compacting")
+                      : running
+                      ? t(queued ? "live.placeholder.steerQueue" : "live.placeholder.queue")
+                      : sending
+                      ? t("live.placeholder.waiting")
+                      : connecting
+                        ? t("live.placeholder.starting")
+                        : !connected
+                          ? t("live.placeholder.disconnected")
+                          : planAvailable && agentMode === "plan"
+                            ? t("composer.placeholder.plan")
+                            : t("composer.placeholder.default")
+                }
+                // Both switches belong to the OpenCode runtime: the approval mode is
+                // its config (an ACP agent asks for permission on its own terms),
+                // and the model picker sends a per-turn model ACP v1 has no way to
+                // honour — the agent owns its model. Withheld rather than shown
+                // doing nothing (#14).
+                approvalMode={acp ? undefined : approvalMode}
+                onApprovalModeChange={acp ? undefined : (mode) => void setApprovalMode(mode)}
+                agentMode={planAvailable ? agentMode : undefined}
+                onAgentModeChange={planAvailable ? (mode) => setAgentMode(mode, key) : undefined}
+                showModelPicker={connected && !webReadOnly && !acp}
+                // The ACP agent's own selectors stand in for the model picker: the
+                // agent owns its model list, and `session/set_config_option` is how
+                // v1 changes it.
+                configOptions={acp && !webReadOnly ? (acpConfigOptions[key] ?? []) : undefined}
+                onConfigOption={
+                  acp && sid
+                    ? (configId, value) => void setAcpConfigOption(sid, configId, value)
+                    : undefined
+                }
+                modelSessionId={key}
+                onCompactContext={connected && !webReadOnly && eid ? () => void compactContext(eid) : undefined}
+                // Only the pane the user is looking at may take a prepared draft.
+                acceptsHandoff={focused}
+                visible={laidOut}
+                draftKey={draftKey}
+                showWorkspaceChip={eid === null}
+                sessionDir={sessionDir ?? undefined}
+                currentSessionId={eid}
+              />
+            </div>
           </div>
         </div>
           </>

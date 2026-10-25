@@ -79,20 +79,6 @@
     "send": {
       "aria": "Enviar"
     },
-    "agent": {
-      "aria": "Modo del agente",
-      "title": "Planificar primero o construir directamente",
-      "menuAria": "Modos del agente",
-      "menuTitle": "¿Cómo debe trabajar el agente?",
-      "build": {
-        "label": "Construir",
-        "description": "Edita archivos y ejecuta comandos"
-      },
-      "plan": {
-        "label": "Planificar",
-        "description": "Solo lectura: investiga y escribe primero un plan"
-      }
-    },
     "approval": {
       "aria": "Modo de aprobación",
       "title": "Cómo se aprueban las acciones del agente",
@@ -147,12 +133,31 @@
       "removeAria": "Quitar la referencia a {{title}}"
     },
     "compact": {
-      "aria": "Comprimir contexto",
-      "title": "Resume los turnos anteriores; la siguiente respuesta usará el contexto comprimido",
       "confirmTitle": "¿Compactar el contexto?",
       "confirmBody": "Los turnos anteriores se sustituyen por un resumen para que la siguiente respuesta funcione con un contexto acotado. La conversación original completa sigue guardada localmente.",
       "confirmAction": "Compactar"
-    }
+    },
+    "builtin": {
+      "plan": "Modo plan: investigar y escribir un plan antes de cambiar archivos. /plan off para salir",
+      "compact": "Comprimir contexto: resumir la conversación anterior"
+    },
+    "planMode": {
+      "label": "Modo plan",
+      "title": "El agente investiga y escribe un plan; no edita archivos. Shift+Tab o /plan off para salir",
+      "exitAria": "Salir del modo plan"
+    },
+    "queue": {
+      "aria": "Mensajes en cola",
+      "edit": "Editar mensaje en cola",
+      "save": "Guardar",
+      "cancelEdit": "Cancelar edición",
+      "remove": "Quitar mensaje en cola",
+      "steer": "Intervenir ahora",
+      "sendNow": "Enviar ahora",
+      "add": "Poner en cola",
+      "addTitle": "Enviar al terminar este turno (Enter) · Cmd/Ctrl+Enter interviene ahora"
+    },
+    "busyCommand": "Espera a que termine este turno para ejecutar un comando."
   },
   "localCommand": {
     "newDescription": "Borrar el contexto del chat en esta carpeta",
@@ -244,7 +249,10 @@
       "starting": "Iniciando el entorno de ejecución…",
       "disconnected": "Conéctate para chatear",
       "waiting": "Esperando la respuesta…",
-      "readOnly": "Acceso de solo lectura — solo visualización"
+      "readOnly": "Acceso de solo lectura — solo visualización",
+      "queue": "Enter pone en cola para después, Cmd/Ctrl+Enter interviene ahora",
+      "steerQueue": "Cmd/Ctrl+Enter envía ahora todos los mensajes en cola",
+      "compacting": "Comprimiendo contexto…"
     }
   },
   "tool": {

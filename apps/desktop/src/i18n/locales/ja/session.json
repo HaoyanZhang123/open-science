@@ -79,20 +79,6 @@
     "send": {
       "aria": "送信"
     },
-    "agent": {
-      "aria": "エージェントモード",
-      "title": "まず計画するか、すぐ実行するか",
-      "menuAria": "エージェントモード",
-      "menuTitle": "エージェントの動き方",
-      "build": {
-        "label": "実行",
-        "description": "ファイルを編集しコマンドを実行"
-      },
-      "plan": {
-        "label": "計画",
-        "description": "読み取り専用：調査して先に計画を書く"
-      }
-    },
     "approval": {
       "aria": "承認モード",
       "title": "エージェントの操作をどのように承認するか",
@@ -147,12 +133,31 @@
       "removeAria": "{{title}} への参照を削除"
     },
     "compact": {
-      "aria": "コンテキストを圧縮",
-      "title": "過去のターンを要約し、次の返信を制御されたコンテキストで実行します",
       "confirmTitle": "コンテキストを圧縮しますか？",
       "confirmBody": "これまでのやり取りは要約に置き換えられ、次の応答は限られたコンテキストで実行されます。元の会話全体はローカルに保存されたままです。",
       "confirmAction": "圧縮"
-    }
+    },
+    "builtin": {
+      "plan": "計画モード：ファイルを変更せず、調査して計画を書く。/plan off で終了",
+      "compact": "コンテキストを圧縮：これまでの会話を要約する"
+    },
+    "planMode": {
+      "label": "計画モード",
+      "title": "エージェントは調査して計画を書くだけで、ファイルは変更しません。Shift+Tab または /plan off で終了",
+      "exitAria": "計画モードを終了"
+    },
+    "queue": {
+      "aria": "キュー済みメッセージ",
+      "edit": "キュー済みメッセージを編集",
+      "save": "保存",
+      "cancelEdit": "編集をキャンセル",
+      "remove": "キュー済みメッセージを削除",
+      "steer": "今すぐ割り込み送信",
+      "sendNow": "今すぐ送信",
+      "add": "キューに追加",
+      "addTitle": "このターンの後に送信（Enter）· Cmd/Ctrl+Enter で今すぐ割り込み"
+    },
+    "busyCommand": "このターンが終わってからコマンドを実行してください。"
   },
   "localCommand": {
     "newDescription": "このフォルダでチャット文脈を消去",
@@ -244,7 +249,10 @@
       "starting": "ランタイムを起動中…",
       "disconnected": "チャットするには接続してください",
       "waiting": "返信を待っています…",
-      "readOnly": "読み取り専用アクセス — 閲覧のみ"
+      "readOnly": "読み取り専用アクセス — 閲覧のみ",
+      "queue": "Enter でこのターンの後にキュー、Cmd/Ctrl+Enter で今すぐ割り込み",
+      "steerQueue": "Cmd/Ctrl+Enter でキュー内のすべてを今すぐ割り込み送信",
+      "compacting": "コンテキストを圧縮中…"
     }
   },
   "tool": {

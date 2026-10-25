@@ -12,12 +12,9 @@ import {
   Check,
   ChevronDown,
   ClipboardList,
-  Hammer,
   Hand,
-  Loader2,
   MessageSquare,
-  Paperclip,
-  Shrink,
+  Plus,
   Square,
   Terminal,
   X,
@@ -120,13 +117,6 @@ const APPROVAL_OPTIONS: { mode: ApprovalMode; icon: typeof Hand }[] = [
   { mode: "full", icon: Zap },
 ];
 
-/** Build (default) or Plan — OpenCode's read-only planning agent. Copy is
- *  translated at render time (`agentCopy`), mirroring the approval switch. */
-const AGENT_OPTIONS: { mode: AgentMode; icon: typeof Hammer }[] = [
-  { mode: "build", icon: Hammer },
-  { mode: "plan", icon: ClipboardList },
-];
-
 /**
  * The "Ask anything" composer. Static mock sessions pass no `onSend`; the live
  * OpenCode session passes one to submit prompts to the runtime. Attached
@@ -138,9 +128,18 @@ const AGENT_OPTIONS: { mode: AgentMode; icon: typeof Hammer }[] = [
  *   `/`  — command palette: pick a slash command (config command / skill /
  *          MCP prompt) with ↑/↓ + Tab/Enter, then type arguments and send.
  *          A "/name" that matches no known command stays a plain prompt.
+ *          Two of them are the composer's own: `/plan` (plan mode on; with a
+ *          message, also sends it; `/plan off` leaves) and `/compact`.
+ *
+ * While a turn runs (`working` + `onQueue`) the input stays live: Enter queues
+ * the message for after the turn, Cmd/Ctrl+Enter sends it now — OpenCode then
+ * picks it up at the turn's next step (steer). On an empty input
+ * Cmd/Ctrl+Enter steers the whole queue (`onSteerQueued`).
  */
 export function Composer({
   onSend,
+  onQueue,
+  onSteerQueued,
   onRunShell,
   onRunCommand,
   commands = [],
@@ -162,13 +161,16 @@ export function Composer({
   currentSessionId,
   onInteract,
   onCompactContext,
-  compacting,
   acceptsHandoff = true,
   visible = true,
 }: {
   /** `attachments` are the chip file names, omitted when there are none. The
    *  text already names them; the list lets the send attach the images too. */
   onSend?: (text: string, attachments?: string[]) => void;
+  /** Queue a message for after the running turn (Enter while `working`). */
+  onQueue?: (text: string, attachments?: string[]) => void;
+  /** Send every queued message now (Cmd/Ctrl+Enter on an empty input). */
+  onSteerQueued?: () => void;
   onRunShell?: (command: string) => void;
   onRunCommand?: (name: string, args: string) => void;
   commands?: ComposerCommand[];
@@ -182,8 +184,9 @@ export function Composer({
    *  session does; static mock sessions don't). */
   approvalMode?: ApprovalMode;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
-  /** The Build/Plan agent switch — same both-or-nothing contract; the live
-   *  session withholds it when the runtime has no "plan" agent. */
+  /** Plan mode — `/plan`, the toolbar chip and Shift+Tab. Same both-or-nothing
+   *  contract; the live session withholds it when the runtime has no "plan"
+   *  agent. */
   agentMode?: AgentMode;
   onAgentModeChange?: (mode: AgentMode) => void;
   /** Show the inline model + reasoning-effort switcher (left of send). The live
@@ -210,12 +213,9 @@ export function Composer({
   /** Fired when the user edits the input — used to pin a tentative screen (#3)
    *  the moment they start typing, so it isn't reused/lost on the next click. */
   onInteract?: () => void;
-  /** When provided, shows the manual compress-context button left of the model
-   *  picker. The live session wires it to `compactContext`; static mock
-   *  sessions omit it. Disabled while a turn runs or a compaction is in
-   *  flight for this session. */
+  /** When provided, offers `/compact` (asked once before it runs). The live
+   *  session wires it to `compactContext`; static mock sessions omit it. */
   onCompactContext?: () => void;
-  compacting?: boolean;
   /** May this composer take an app-wide prepared draft (the provenance panel's
    *  "Reproduce")? Exactly one should: every pane of every screen is mounted,
    *  including hidden ones, and a draft claimed by any other lands where the
@@ -240,17 +240,20 @@ export function Composer({
       description: t("composer.approval.full.description"),
     },
   };
-  // Agent-mode copy, same pattern as approvalCopy.
-  const agentCopy: Record<AgentMode, { label: string; description: string }> = {
-    build: {
-      label: t("composer.agent.build.label"),
-      description: t("composer.agent.build.description"),
-    },
-    plan: {
-      label: t("composer.agent.plan.label"),
-      description: t("composer.agent.plan.description"),
-    },
-  };
+  // The composer's own slash commands, listed ahead of the runtime's. Each is
+  // offered only when its surface wires it (a static mock session wires none).
+  const builtins: ComposerCommand[] = [
+    ...(agentMode && onAgentModeChange
+      ? [{ name: "plan", description: t("composer.builtin.plan"), source: "local" }]
+      : []),
+    ...(onCompactContext
+      ? [{ name: "compact", description: t("composer.builtin.compact"), source: "local" }]
+      : []),
+  ];
+  const allCommands = [
+    ...builtins,
+    ...commands.filter((c) => !builtins.some((b) => b.name === c.name)),
+  ];
   // Reclaim whatever this pane had typed before it was last unmounted (a screen
   // switch tears panes down). Unparked once, on mount, so the two states below
   // seed from the same draft.
@@ -272,13 +275,10 @@ export function Composer({
   const [hist, setHist] = useState<{ index: number; draft: string } | null>(null);
   /** The approval-mode menu is open. */
   const [approvalOpen, setApprovalOpen] = useState(false);
-  // Compaction is one click next to Send, and it changes what the agent can see
-  // for the rest of the conversation. Cheap to ask, expensive to undo by hand.
+  // `/compact` changes what the agent can see for the rest of the
+  // conversation. Cheap to ask, expensive to undo by hand.
   const [confirmCompact, setConfirmCompact] = useState(false);
   const approvalRef = useRef<HTMLDivElement>(null);
-  /** The agent-mode menu is open. */
-  const [agentOpen, setAgentOpen] = useState(false);
-  const agentRef = useRef<HTMLDivElement>(null);
 
   // Dismiss the approval menu on any outside press. (Button blur can't do
   // this: WKWebView never focuses a clicked button, so blur never fires.)
@@ -290,16 +290,7 @@ export function Composer({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [approvalOpen]);
-  // Same for the agent menu.
-  useEffect(() => {
-    if (!agentOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!agentRef.current?.contains(e.target as Node)) setAgentOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [agentOpen]);
-  // A narrow pane cannot fit "Approve for me · Build · GPT-5.6 sol · High" as
+  // A narrow pane cannot fit "Approve for me · Plan mode · GPT-5.6 sol · High" as
   // words. When the action row's items do not fit it, the toolbar keeps the
   // icons and drops the labels; every one of those buttons already carries an
   // aria-label and a title, so nothing becomes unreachable.
@@ -334,7 +325,7 @@ export function Composer({
   const slashTyping = !!onRunCommand && !command && /^\/\S*$/.test(value);
   const query = slashTyping ? value.slice(1).toLowerCase() : "";
   const matches = slashTyping
-    ? commands
+    ? allCommands
         .filter((c) => c.name.toLowerCase().includes(query))
         .sort(
           (a, b) =>
@@ -421,7 +412,7 @@ export function Composer({
     // remainder becomes the arguments. Unknown names (paths) stay plain text.
     if (onRunCommand && !command) {
       const m = /^\/(\S+)\s([\s\S]*)$/.exec(v);
-      if (m && commands.some((c) => c.name === m[1])) {
+      if (m && allCommands.some((c) => c.name === m[1])) {
         setCommand(m[1]);
         setValue(m[2]);
         taRef.current?.focus();
@@ -473,38 +464,9 @@ export function Composer({
     return () => observer.disconnect();
   }, []);
 
-  const submit = () => {
-    if (disabled) return;
-    const text = value.trim();
-    setHist(null);
-    // A chipped command runs as itself — arguments optional.
-    if (command) {
-      onRunCommand?.(command, text);
-      recordHistory(text ? `/${command} ${text}` : `/${command}`);
-      setCommand(null);
-      setValue("");
-      return;
-    }
-    // "!" — run the rest of the line as a shell command (no model turn).
-    if (shellMode) {
-      const line = value.slice(1).trim();
-      if (!line) return;
-      onRunShell?.(line);
-      recordHistory(`!${line}`);
-      setValue("");
-      return;
-    }
-    // "/name args" — run a KNOWN slash command; unknown names stay a prompt
-    // (a message can legitimately start with a path like "/etc/hosts …").
-    if (onRunCommand && text.startsWith("/")) {
-      const name = text.slice(1).split(/\s/, 1)[0];
-      if (commands.some((c) => c.name === name)) {
-        onRunCommand(name, text.slice(1 + name.length).trim());
-        recordHistory(text);
-        setValue("");
-        return;
-      }
-    }
+  /** Send the typed message with its chips. While a turn runs it is queued
+   *  for after the turn, unless `now` (Cmd/Ctrl+Enter) steers it in. */
+  const sendMessage = (text: string, now: boolean) => {
     if (!text && files.length === 0 && refSessions.length === 0) return;
     const fileNote =
       files.length > 0 ? `Files added to the workspace: ${files.join(", ")}` : "";
@@ -513,7 +475,8 @@ export function Composer({
     // names let the send turn images into real multimodal parts (#88). Passed
     // only when there are chips, so a plain send keeps its one-argument shape.
     const attachments = files.length > 0 ? [...files] : null;
-    const send = (t: string) => (attachments ? onSend?.(t, attachments) : onSend?.(t));
+    const deliver = working && onQueue && !now ? onQueue : onSend;
+    const send = (t: string) => (attachments ? deliver?.(t, attachments) : deliver?.(t));
     if (refSessions.length > 0) {
       // Referenced conversations are fetched and condensed before sending, so
       // the agent gets the earlier context without the user copy-pasting it.
@@ -525,14 +488,88 @@ export function Composer({
     } else {
       send(base);
     }
-    if (text) recordHistory(text);
-    setValue("");
     setFiles([]);
     // The sent files belong to the conversation now, so this composer no longer
     // owns any of them. Leaving the set behind would arm a real deletion: send
     // `pasted.png`, later drag that same file back in from the Files pane —
     // which attaches it IN PLACE — and removing that chip would delete it.
     owned.current.clear();
+  };
+
+  /** Run a slash command: the composer's own `/plan` and `/compact` here, the
+   *  runtime's through `onRunCommand`. Returns false when it cannot run now
+   *  (the input is then kept). */
+  const runCommand = (name: string, args: string, now: boolean): boolean => {
+    if (name === "plan" && agentMode && onAgentModeChange) {
+      if (args === "off") {
+        onAgentModeChange("build");
+        return true;
+      }
+      // Set before sending: the send reads the mode from the store.
+      onAgentModeChange("plan");
+      if (args) sendMessage(args, now);
+      return true;
+    }
+    if (name === "compact" && onCompactContext) {
+      // Mid-turn the runtime refuses and says why; nothing to confirm then.
+      if (working) onCompactContext();
+      else setConfirmCompact(true);
+      return true;
+    }
+    // A runtime command or a shell line is a turn of its own; the server
+    // refuses one while another runs.
+    if (working) {
+      toast.error(t("composer.busyCommand"));
+      return false;
+    }
+    onRunCommand?.(name, args);
+    return true;
+  };
+
+  const submit = (now = false) => {
+    if (disabled) return;
+    const text = value.trim();
+    setHist(null);
+    // A chipped command runs as itself — arguments optional.
+    if (command) {
+      if (!runCommand(command, text, now)) return;
+      recordHistory(text ? `/${command} ${text}` : `/${command}`);
+      setCommand(null);
+      setValue("");
+      return;
+    }
+    // "!" — run the rest of the line as a shell command (no model turn).
+    if (shellMode) {
+      const line = value.slice(1).trim();
+      if (!line) return;
+      if (working) {
+        toast.error(t("composer.busyCommand"));
+        return;
+      }
+      onRunShell?.(line);
+      recordHistory(`!${line}`);
+      setValue("");
+      return;
+    }
+    // "/name args" — run a KNOWN slash command; unknown names stay a prompt
+    // (a message can legitimately start with a path like "/etc/hosts …").
+    if (onRunCommand && text.startsWith("/")) {
+      const name = text.slice(1).split(/\s/, 1)[0];
+      if (allCommands.some((c) => c.name === name)) {
+        if (!runCommand(name, text.slice(1 + name.length).trim(), now)) return;
+        recordHistory(text);
+        setValue("");
+        return;
+      }
+    }
+    // Cmd/Ctrl+Enter on an empty input mid-turn steers the whole queue.
+    if (now && working && !text && files.length === 0 && refSessions.length === 0) {
+      onSteerQueued?.();
+      return;
+    }
+    sendMessage(text, now);
+    if (text) recordHistory(text);
+    setValue("");
   };
 
   /** Quote each referenced conversation down to its ask and its conclusion.
@@ -645,9 +682,15 @@ export function Composer({
       }
       return;
     }
+    // Shift+Tab flips plan mode, as in Claude Code.
+    if (e.key === "Tab" && e.shiftKey && agentMode && onAgentModeChange) {
+      e.preventDefault();
+      onAgentModeChange(agentMode === "plan" ? "build" : "plan");
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      submit(e.metaKey || e.ctrlKey);
     }
   };
 
@@ -885,18 +928,20 @@ export function Composer({
     <div
       {...webDrop}
       className={cn(
-        "relative rounded-card border bg-surface px-2 py-2 shadow-card",
+        // A capsule with no layout border: a hairline ring plus a soft wide
+        // shadow (after DSH's composer card), so it floats over the thread.
+        "relative rounded-[24px] bg-surface px-3 pb-2.5 pt-3 shadow-composer ring-1",
         // Plan mode gets the blue link tone — distinct from shell (warn) and
         // a chipped command (accent) — so a read-only turn is unmistakable.
         shellMode
-          ? "border-warn/60"
+          ? "ring-warn/60"
           : command
-            ? "border-accent/50"
+            ? "ring-accent/50"
             : agentMode === "plan"
-              ? "border-link/60"
-              : "border-border",
+              ? "ring-link/60"
+              : "ring-border/70",
         // Dragging a file over the window: highlight the composer as the target.
-        dragOver && "border-accent ring-2 ring-accent/40",
+        dragOver && "ring-2 ring-accent/60",
       )}
     >
       {refOpen && (
@@ -1044,7 +1089,7 @@ export function Composer({
               : resolvedPlaceholder
         }
         className={cn(
-          "max-h-[160px] w-full resize-none bg-transparent px-1.5 py-0.5 text-sm leading-6 text-text outline-none placeholder:text-muted",
+          "max-h-[160px] min-h-[36px] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text outline-none placeholder:text-muted",
           (shellMode || command) && "font-mono",
         )}
         aria-label={t("composer.placeholder.default")}
@@ -1057,7 +1102,7 @@ export function Composer({
           Every item keeps its natural width (none shrinks — a squeezed chip
           spilled its "· effort ⌄" over the send button); when they do not
           all fit, the buttons drop their labels (useLabelsOverflow). */}
-      <div ref={toolbarRef} className="flex min-w-0 items-center gap-1.5 pt-1">
+      <div ref={toolbarRef} className="flex min-w-0 items-center gap-1.5 pt-2">
         {command ? (
           <span
             className="flex h-7 shrink-0 items-center gap-1 rounded-input bg-accent/15 pl-2 pr-1 font-mono text-xs text-accent"
@@ -1084,13 +1129,13 @@ export function Composer({
           canAttach && (
             <>
               <button
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted ring-1 ring-border hover:bg-surface-2 hover:text-text disabled:opacity-40"
                 aria-label={t("composer.attach.addAria")}
                 title={t("composer.attach.title")}
                 onClick={() => void addFiles()}
                 disabled={adding}
               >
-                <Paperclip size={15} />
+                <Plus size={16} />
               </button>
               {isGatewayWeb && (
                 <input
@@ -1111,61 +1156,26 @@ export function Composer({
         {/* Folder picker for a fresh draft — renders nothing once the session
             exists (its folder then shows in the header's Files toggle). */}
         {showWorkspaceChip && <WorkspaceChip draftKey={draftKey} compact={compactToolbar} />}
-        {agentMode && onAgentModeChange && (
-          <div className="relative shrink-0" ref={agentRef}>
-            {agentOpen && (
-              <div
-                role="menu"
-                aria-label={t("composer.agent.menuAria")}
-                className="absolute bottom-full left-0 z-20 mb-2 w-80 rounded-card border border-border bg-surface p-1 shadow-card"
-              >
-                <div className="px-2 pb-1 pt-1.5 text-xs text-muted">
-                  {t("composer.agent.menuTitle")}
-                </div>
-                {AGENT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.mode}
-                    role="menuitemradio"
-                    aria-checked={opt.mode === agentMode}
-                    className="flex w-full items-start gap-2 rounded-input px-2 py-1.5 text-left hover:bg-surface-2"
-                    // mousedown, not click — a click would blur the textarea first.
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setAgentOpen(false);
-                      if (opt.mode !== agentMode) onAgentModeChange(opt.mode);
-                    }}
-                  >
-                    <opt.icon size={13} className="mt-0.5 shrink-0 text-muted" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs text-text">{agentCopy[opt.mode].label}</span>
-                      <span className="block text-xs text-muted">
-                        {agentCopy[opt.mode].description}
-                      </span>
-                    </span>
-                    {opt.mode === agentMode && (
-                      <Check size={13} className="mt-0.5 shrink-0 text-accent" />
-                    )}
-                  </button>
-                ))}
-              </div>
+        {/* Plan mode shows only while on — entered with /plan or Shift+Tab,
+            left with ×, /plan off or Shift+Tab again. */}
+        {agentMode === "plan" && onAgentModeChange && (
+          <span
+            className={cn(
+              "flex h-7 shrink-0 items-center rounded-full bg-link/15 text-xs text-link",
+              compactToolbar ? "gap-0.5 pl-1.5 pr-1" : "gap-1.5 pl-2.5 pr-1",
             )}
+            title={t("composer.planMode.title")}
+          >
+            <ClipboardList size={12} />
+            {!compactToolbar && <span>{t("composer.planMode.label")}</span>}
             <button
-              aria-label={t("composer.agent.aria")}
-              title={t("composer.agent.title")}
-              className={cn(
-                "flex h-7 items-center rounded-full text-xs",
-                compactToolbar ? "gap-0.5 px-1.5" : "gap-1.5 px-2.5",
-                agentMode === "plan"
-                  ? "bg-link/15 text-link hover:bg-link/25"
-                  : "text-muted hover:bg-surface-2 hover:text-text",
-              )}
-              onClick={() => setAgentOpen((o) => !o)}
+              className="rounded-full p-0.5 hover:bg-link/25"
+              aria-label={t("composer.planMode.exitAria")}
+              onClick={() => onAgentModeChange("build")}
             >
-              {agentMode === "plan" ? <ClipboardList size={12} /> : <Hammer size={12} />}
-              {!compactToolbar && <span>{agentCopy[agentMode].label}</span>}
-              {!compactToolbar && <ChevronDown size={11} />}
+              <X size={11} />
             </button>
-          </div>
+          </span>
         )}
         {approvalMode && onApprovalModeChange && !isGatewayWeb && (
           <div className="relative shrink-0" ref={approvalRef}>
@@ -1223,21 +1233,6 @@ export function Composer({
         {/* Model picker + send kept together, pushed right (and wrapping as a
             unit) so the send button is always reachable on a narrow pane. */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {onCompactContext && (
-            <button
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label={t("composer.compact.aria")}
-              title={t("composer.compact.title")}
-              onClick={() => setConfirmCompact(true)}
-              disabled={compacting || working || disabled}
-            >
-              {compacting ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Shrink size={13} />
-              )}
-            </button>
-          )}
           {confirmCompact && onCompactContext && (
             <ConfirmDialog
               title={t("composer.compact.confirmTitle")}
@@ -1264,11 +1259,23 @@ export function Composer({
           {configOptions && onConfigOption && (
             <AcpConfigPicker options={configOptions} onChange={onConfigOption} disabled={working} />
           )}
+          {/* Mid-turn, typed text gets its own button — it queues, the same
+              as Enter — beside Stop, which stays in the send button's spot. */}
+          {working && onQueue && canSend && (
+            <button
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text ring-1 ring-border hover:bg-surface-2"
+              aria-label={t("composer.queue.add")}
+              title={t("composer.queue.addTitle")}
+              onClick={() => submit()}
+            >
+              <ArrowUp size={16} />
+            </button>
+          )}
           {working && onStop ? (
             // Same spot, same shape, one action: the send button becomes Stop
             // while the agent works — always live, even though the input is not.
             <button
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input bg-accent text-accent-fg hover:opacity-90"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg hover:opacity-90"
               aria-label={t("composer.stop.aria")}
               title={t("composer.stop.title")}
               onClick={onStop}
@@ -1277,12 +1284,12 @@ export function Composer({
             </button>
           ) : (
             <button
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-input bg-accent text-accent-fg hover:opacity-90 disabled:opacity-40"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg hover:opacity-90 disabled:opacity-40"
               aria-label={t("composer.send.aria")}
-              onClick={submit}
+              onClick={() => submit()}
               disabled={!canSend}
             >
-              <ArrowUp size={15} />
+              <ArrowUp size={16} />
             </button>
           )}
         </div>
