@@ -127,9 +127,10 @@ export function FilePreviewInspector({
   const [error, setError] = useState<string | null>(null);
   // Opening a file to EDIT it lands on the text. Arriving on a rendered
   // preview, with the editor one unexplained toggle away, is not what "open
-  // this markdown file" means.
+  // this markdown file" means. HTML is the exception: an HTML file is a page,
+  // and opening one means seeing the page; its source is one toggle away.
   const [tab, setTab] = useState<"preview" | "code">(
-    kind === "text" || startEditing ? "code" : "preview",
+    kind === "text" || (startEditing && kind !== "html") ? "code" : "preview",
   );
   const [showHistory, setShowHistory] = useState(false);
   // An edit in progress (#33). Null means "not editing" — distinct from an

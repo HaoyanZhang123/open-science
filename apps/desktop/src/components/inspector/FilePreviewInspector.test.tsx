@@ -21,6 +21,7 @@ vi.mock("@/lib/artifactFile", async (importOriginal) => {
       size: 3,
     })),
     probeLargeFile: (...args: unknown[]) => probeLargeFile(...args),
+    previewUrl: vi.fn(async () => "http://127.0.0.1:1/page.html"),
     writeWorkspaceFile: (...args: Parameters<typeof writeWorkspaceFile>) =>
       writeWorkspaceFile(...args),
   };
@@ -376,6 +377,23 @@ describe("FilePreviewInspector — an editor pane", () => {
     // what "open the file" means.
     expect(await screen.findByRole("textbox", { name: "Editing fit.py" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit this file" })).not.toBeInTheDocument();
+  });
+
+  it("opens an HTML file on the page, not its source", async () => {
+    const html: FilePreviewInspectorT = {
+      variant: "file",
+      path: "out/page.html",
+      filename: "page.html",
+      artifact: "report",
+      content: "<h1>Hi</h1>",
+    };
+    render(<FilePreviewInspector data={html} onClose={() => {}} startEditing />);
+
+    expect(await screen.findByTitle("HTML preview")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Editing page.html" })).not.toBeInTheDocument();
+    // The source is one toggle away, already editable.
+    await userEvent.click(screen.getByRole("button", { name: /Code/ }));
+    expect(await screen.findByRole("textbox", { name: "Editing page.html" })).toBeInTheDocument();
   });
 
   it("opens a markdown note on its text, with Orca's formatting toolbar", async () => {
