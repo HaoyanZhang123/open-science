@@ -1,4 +1,5 @@
-// Keep a damaged conversation sendable (#114).
+// Keep a damaged conversation sendable (#114), and keep a screenshot-heavy one
+// fast (see KEEP_IMAGES).
 //
 // A session dies permanently with `Invalid prompt: The messages do not match
 // the ModelMessage[] schema` when one stored part is missing a field the AI
@@ -92,6 +93,44 @@ function repairPart(part: Part, synthesizeCallID: () => string): void {
   // `pending` and `running` are backfilled by the converter itself.
 }
 
+// Only the newest screenshots stay attached. Every turn resends the whole
+// history, and a provider re-encodes every image in it each time — prompt
+// caching saves the tokens, not the time. Measured on deepseek-v4-flash: one
+// image ~3–6 s before the first token, four ~26–30 s cached or not, so an agent
+// checking its UI with a dozen screenshots waited ~5 min per step. An older
+// image is detached for this request only; its result says where to find it
+// again.
+const KEEP_IMAGES = 2;
+
+type Attachment = { mime?: unknown };
+
+function isImage(attachment: unknown): boolean {
+  const mime = (attachment as Attachment | null)?.mime;
+  return typeof mime === "string" && mime.startsWith("image/");
+}
+
+function detachOldImages(parts: Part[]): void {
+  let kept = 0;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const state = parts[i].state as
+      | (Part["state"] & { attachments?: unknown; input?: { filePath?: unknown } })
+      | undefined;
+    if (parts[i].type !== "tool" || state?.status !== "completed" || state.time?.compacted) continue;
+    if (!Array.isArray(state.attachments)) continue;
+    const images = state.attachments.filter(isImage).length;
+    if (images === 0) continue;
+    if (kept + images <= KEEP_IMAGES) {
+      kept += images;
+      continue;
+    }
+    kept = KEEP_IMAGES; // once one is dropped, everything older goes too
+    state.attachments = state.attachments.filter((a) => !isImage(a));
+    const file = state.input?.filePath;
+    const where = isString(file) ? `read ${file} again` : "take it again";
+    state.output = `${isString(state.output) ? state.output : NO_OUTPUT}\n[Image no longer attached, to keep turns fast — ${where} if you need to see it.]`;
+  }
+}
+
 // Nothing is exported but the plugin factory: OpenCode's external-plugin loader
 // calls every export it finds as a factory, so an exported helper is invoked
 // with no arguments at load time and takes the whole module down with it.
@@ -108,13 +147,17 @@ export const HistoryGuardPlugin = async () => ({
       if (!Array.isArray(messages)) return;
       let counter = 0;
       const synthesizeCallID = () => `osd-repaired-${counter++}`;
+      const all: Part[] = [];
       for (const message of messages) {
         const parts = message?.parts;
         if (!Array.isArray(parts)) continue;
         for (const part of parts) {
-          if (part && typeof part === "object") repairPart(part as Part, synthesizeCallID);
+          if (!part || typeof part !== "object") continue;
+          repairPart(part as Part, synthesizeCallID);
+          all.push(part as Part);
         }
       }
+      detachOldImages(all);
     } catch {
       // Leave the turn to fail the way it would have without us.
     }

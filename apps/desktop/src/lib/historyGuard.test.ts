@@ -84,6 +84,43 @@ describe("history guard", () => {
     expect(part).not.toHaveProperty("metadata");
   });
 
+  describe("only the newest images stay attached", () => {
+    const shot = (n: number) => ({
+      type: "tool",
+      callID: `c${n}`,
+      state: {
+        status: "completed",
+        input: { filePath: `/tmp/${n}.png` },
+        output: "Image read successfully",
+        attachments: [{ mime: "image/png", url: `data:${n}` }],
+        time: {},
+      },
+    });
+    type Shot = ReturnType<typeof shot>;
+
+    it("detaches all but the last two, and says where to read each again", async () => {
+      const parts = [1, 2, 3, 4].map(shot);
+      await transform([message(parts.slice(0, 2)), message(parts.slice(2))]);
+      const attached = parts.map((p: Shot) => p.state.attachments.length);
+      expect(attached).toEqual([0, 0, 1, 1]);
+      expect(parts[0].state.output).toMatch(/read \/tmp\/1\.png again/);
+      expect(parts[3].state.output).toBe("Image read successfully");
+    });
+
+    it("keeps non-image attachments and leaves a short history untouched", async () => {
+      const old = shot(1);
+      old.state.attachments.push({ mime: "text/plain", url: "data:t" });
+      const msgs = [message([old, shot(2), shot(3)])];
+      await transform(msgs);
+      expect(old.state.attachments).toEqual([{ mime: "text/plain", url: "data:t" }]);
+
+      const short = [message([shot(1), shot(2)])];
+      const before = JSON.stringify(short);
+      await transform(short);
+      expect(JSON.stringify(short)).toBe(before);
+    });
+  });
+
   describe("leaves alone what the runtime already repairs", () => {
     it("does not touch an interrupted tool call", async () => {
       for (const status of ["pending", "running"]) {
