@@ -284,6 +284,10 @@ pub struct GatewayState {
     /// Called with a layout a token client wrote, so the desktop window shows
     /// it at once (the window and token clients share one set of Screens).
     on_desktop_layout: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Called with a Screen's id when a client asks the window to show it
+    /// (`osd screen show`): which Screen a view shows is its own, so this is
+    /// a request to the window, not a layout change.
+    on_show_screen: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// Called when a client created or deleted a session, so a desktop window
     /// showing the same workspace refreshes instead of going stale.
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -294,12 +298,25 @@ impl GatewayState {
         assets: Arc<dyn Assets>,
         on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Self {
-        GatewayState { running: Mutex::new(None), assets, terminals: None, on_desktop_layout: None, on_sessions_changed }
+        GatewayState {
+            running: Mutex::new(None),
+            assets,
+            terminals: None,
+            on_desktop_layout: None,
+            on_show_screen: None,
+            on_sessions_changed,
+        }
     }
 
     /// Tell the window when a token client changes the shared Screens.
     pub fn with_desktop_layout_listener(mut self, f: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
         self.on_desktop_layout = Some(f);
+        self
+    }
+
+    /// Let clients ask the window to show a Screen.
+    pub fn with_show_screen_listener(mut self, f: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        self.on_show_screen = Some(f);
         self
     }
 
@@ -323,6 +340,7 @@ struct Ctx {
     assets: Arc<dyn Assets>,
     terminals: Option<Arc<dyn Terminals>>,
     on_desktop_layout: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    on_show_screen: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     on_sessions_changed: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -417,6 +435,7 @@ pub fn start_at(
         assets: state.assets.clone(),
         terminals: state.terminals.clone(),
         on_desktop_layout: state.on_desktop_layout.clone(),
+        on_show_screen: state.on_show_screen.clone(),
         on_sessions_changed: state.on_sessions_changed.clone(),
     });
     let sf = stop_flag.clone();
@@ -664,6 +683,15 @@ fn audit_call(req: &Request) -> Option<AuditCall> {
             ("DELETE", ["sessions", _]) => call("session.delete", id(1), None),
             ("POST", ["sessions", _, "prompt"]) => call("session.prompt", id(1), words(field("text").unwrap_or_default())),
             ("POST", ["sessions", _, "abort"]) => call("session.abort", id(1), None),
+            ("PATCH", ["sessions", _]) => match body()["archived"].as_bool() {
+                Some(true) => call("session.archive", id(1), None),
+                Some(false) => call("session.unarchive", id(1), None),
+                None => call("session.rename", id(1), field("title")),
+            },
+            ("POST", ["sessions", _, "move"]) => call("session.move", id(1), field("project")),
+            ("POST", ["questions", _, what @ ("reply" | "reject")]) => {
+                call(&format!("question.{what}"), id(1), words(String::from_utf8_lossy(&req.body).into_owned()))
+            }
             ("POST", ["permissions", _, "reply"]) => call("permission.reply", id(1), field("reply")),
             ("POST", ["fs", "upload"]) => {
                 call("file.upload", req.query_get("name"), Some(format!("{} bytes", req.body.len())))
@@ -910,6 +938,67 @@ fn agent_send_limited(req: &Request, ctx: &Ctx, rest: &str) -> bool {
     false
 }
 
+/// The folder a request is about: `?dir=` (a session's, checked to be inside
+/// the workspace), else the host's.
+fn req_dir(ctx: &Ctx, req: &Request) -> Result<String, String> {
+    match req.query_get("dir").filter(|d| !d.is_empty()) {
+        Some(d) => session_dir(ctx, &d),
+        None => Ok(ws_dir(ctx)),
+    }
+}
+
+fn upstream_patch(ctx: &Ctx, path: &str, body: &str) -> UpstreamResult {
+    let (base, pw) = endpoint(ctx).ok_or_else(|| "runtime not started".to_string())?;
+    shared_client()
+        .patch(format!("{base}{path}"))
+        .basic_auth("opencode", Some(pw))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .map_err(|e| e.to_string())
+}
+
+/// The app's own namespace in a session's metadata (the web client's META_NS).
+const META_NS: &str = "ai4s";
+
+/// `PATCH /v1/sessions/:id {title?, archived?}`.
+fn session_patch(stream: &mut TcpStream, req: &Request, ctx: &Ctx, id: &str) {
+    let v: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+    let mut patch = serde_json::Map::new();
+    if let Some(title) = v["title"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+        patch.insert("title".into(), serde_json::json!(title));
+    }
+    if let Some(archived) = v["archived"].as_bool() {
+        // PATCH replaces `metadata` whole: start from what is there, so other
+        // keys (another client's) survive.
+        let current: serde_json::Value = match upstream_get(ctx, &format!("/session/{}", enc(id)), &[]) {
+            Ok(r) if r.status().is_success() => r.bytes().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default(),
+            Ok(r) => return respond_json(stream, r.status().as_u16(), &err_json("no such session")),
+            Err(e) => return respond_json(stream, 502, &err_json(&e)),
+        };
+        let mut metadata = current["metadata"].as_object().cloned().unwrap_or_default();
+        let mut mine = metadata.get(META_NS).and_then(|m| m.as_object().cloned()).unwrap_or_default();
+        if archived {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            mine.insert("archived".into(), serde_json::json!(now));
+        } else {
+            mine.remove("archived");
+        }
+        if mine.is_empty() {
+            metadata.remove(META_NS);
+        } else {
+            metadata.insert(META_NS.into(), serde_json::Value::Object(mine));
+        }
+        patch.insert("metadata".into(), serde_json::Value::Object(metadata));
+    }
+    if patch.is_empty() {
+        return respond_json(stream, 400, &err_json("nothing to change: give a title or archived"));
+    }
+    if forward(stream, upstream_patch(ctx, &format!("/session/{}", enc(id)), &serde_json::Value::Object(patch).to_string())) {
+        ctx.sessions_changed();
+    }
+}
+
 /// One layout change at a time, so two `osd screen` calls cannot each read
 /// the layout before the other has written it.
 static LAYOUT_EDIT: Mutex<()> = Mutex::new(());
@@ -944,10 +1033,10 @@ fn pane_of(v: &serde_json::Value) -> Result<crate::screens::Pane, String> {
         return Ok(crate::screens::Pane::Session(id.to_string()));
     }
     if !v["terminal"].is_null() {
-        let cwd = v["terminal"]["cwd"].as_str().filter(|s| !s.is_empty()).map(str::to_string);
-        return Ok(crate::screens::Pane::Terminal { cwd });
+        let text = |k: &str| v["terminal"][k].as_str().filter(|s| !s.trim().is_empty()).map(str::to_string);
+        return Ok(crate::screens::Pane::Terminal { cwd: text("cwd"), command: text("command") });
     }
-    Err("a pane is {\"session\": id} or {\"terminal\": {\"cwd\": dir}}".into())
+    Err("a pane is {\"session\": id} or {\"terminal\": {\"cwd\": dir, \"command\": cmd}}".into())
 }
 
 /// `POST /v1/screens {name?, directory?, panes: [...]}`: a new Screen, filed
@@ -1074,19 +1163,62 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
         ("POST", ["sessions", id, "abort"]) => {
             forward(stream, upstream_post(ctx, &format!("/session/{}/abort", enc(id)), &[], "{}"));
         }
-        ("GET", ["permissions"]) => {
-            let ws = ws_dir(ctx);
-            forward(stream, upstream_get(ctx, "/permission", &[("directory", &ws)]));
+        // Permission requests and questions belong to a folder's runtime
+        // instance: `?dir=` names a session's folder, else the host's.
+        ("GET", ["permissions"]) => match req_dir(ctx, req) {
+            Ok(dir) => {
+                forward(stream, upstream_get(ctx, "/permission", &[("directory", &dir)]));
+            }
+            Err(e) => respond_json(stream, 400, &err_json(&e)),
+        },
+        ("GET", ["questions"]) => match req_dir(ctx, req) {
+            Ok(dir) => {
+                forward(stream, upstream_get(ctx, "/question", &[("directory", &dir)]));
+            }
+            Err(e) => respond_json(stream, 400, &err_json(&e)),
+        },
+        ("POST", ["permissions", rid, "reply"]) => match req_dir(ctx, req) {
+            Ok(dir) => {
+                let reply = json_str_field(&req.body, "reply").unwrap_or_else(|| "reject".into());
+                let body = serde_json::json!({ "reply": reply }).to_string();
+                forward(stream, upstream_post(ctx, &format!("/permission/{}/reply", enc(rid)), &[("directory", &dir)], &body));
+            }
+            Err(e) => respond_json(stream, 400, &err_json(&e)),
+        },
+        // `{"answers": [[label, …], …]}`, one list per question, or reject to
+        // let the agent go on without an answer.
+        ("POST", ["questions", rid, what @ ("reply" | "reject")]) => match req_dir(ctx, req) {
+            Ok(dir) => {
+                let body = if *what == "reply" {
+                    let v: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+                    serde_json::json!({ "answers": v["answers"] }).to_string()
+                } else {
+                    "{}".to_string()
+                };
+                forward(stream, upstream_post(ctx, &format!("/question/{}/{what}", enc(rid)), &[("directory", &dir)], &body));
+            }
+            Err(e) => respond_json(stream, 400, &err_json(&e)),
+        },
+        ("GET", ["sessions", "find"]) => {
+            let q = req.query_get("q").unwrap_or_default();
+            let limit = req.query_get("limit").and_then(|v| v.parse().ok()).unwrap_or(20);
+            match crate::runtime::runtime_root(&ctx.env).and_then(|root| crate::session_find::find(&root, &q, limit)) {
+                Ok(found) => respond_json(stream, 200, &serde_json::to_string(&found).unwrap_or_else(|_| "[]".into())),
+                Err(e) => respond_json(stream, 400, &err_json(&e)),
+            }
         }
-        ("GET", ["questions"]) => {
-            let ws = ws_dir(ctx);
-            forward(stream, upstream_get(ctx, "/question", &[("directory", &ws)]));
-        }
-        ("POST", ["permissions", rid, "reply"]) => {
-            let ws = ws_dir(ctx);
-            let reply = json_str_field(&req.body, "reply").unwrap_or_else(|| "reject".into());
-            let body = serde_json::json!({ "reply": reply }).to_string();
-            forward(stream, upstream_post(ctx, &format!("/permission/{}/reply", enc(rid)), &[("directory", &ws)], &body));
+        // `{"title": …}` renames; `{"archived": true|false}` files it away or
+        // back, as the sidebar does (the app's key in the session's metadata).
+        ("PATCH", ["sessions", id]) => session_patch(stream, req, ctx, id),
+        ("POST", ["sessions", id, "move"]) => {
+            let project = json_str_field(&req.body, "project").unwrap_or_default();
+            match crate::session_sync::move_session_to_project(&ctx.env, id, &project) {
+                Ok(moved) => {
+                    ctx.sessions_changed();
+                    respond_json(stream, 200, &serde_json::to_string(&moved).unwrap_or_else(|_| "{}".into()));
+                }
+                Err(e) => respond_json(stream, 400, &err_json(&e)),
+            }
         }
         ("GET", ["fs", "list"]) => fs_list(stream, req, ctx),
         ("GET", ["fs", "read"]) => fs_read(stream, req, ctx),
@@ -1255,6 +1387,22 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 Err(e) => respond_json(stream, 404, &err_json(&e)),
             }
         }
+        // The desktop window's view only: a browser shows what its user picks.
+        ("POST", ["screens", id, "show"]) => match (who, &ctx.on_show_screen) {
+            (Principal::User { .. }, _) => respond_json(stream, 403, &err_json("an account's Screens are shown by its own browser")),
+            (_, None) => respond_json(stream, 409, &err_json("no desktop window to show it in")),
+            (_, Some(show)) => {
+                let known = crate::web_accounts::read_desktop_layout(&ctx.env)
+                    .and_then(|(_, j)| serde_json::from_str::<serde_json::Value>(&j).ok())
+                    .is_some_and(|l| l["groups"].as_array().is_some_and(|g| g.iter().any(|g| g["id"] == *id)));
+                if known {
+                    show(id);
+                    respond_json(stream, 200, "{\"ok\":true}");
+                } else {
+                    respond_json(stream, 404, &err_json(&format!("no Screen {id}")));
+                }
+            }
+        },
         ("DELETE", ["screens", id]) => match edit_layout(ctx, who, |l| crate::screens::close_screen(l, id)) {
             Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
             Err(e) => respond_json(stream, 404, &err_json(&e)),
@@ -3198,6 +3346,39 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// The window can be asked to show one of its Screens — only by the
+    /// token, only a Screen it has; requests about a session's folder must
+    /// name one inside the workspace; a rename needs something to change.
+    #[test]
+    fn show_screen_and_folder_scoped_requests() {
+        let (env, dir) = env_with_recorded_port("showscreen", None);
+        crate::web_accounts::set_password(&env, "jon", "a long password").unwrap();
+        let shown: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = shown.clone();
+        let state = GatewayState::default().with_show_screen_listener(Arc::new(move |id: &str| sink.lock().unwrap().push(id.to_string())));
+        let mut p = read_persisted(&env);
+        p.enabled = true;
+        write_persisted(&env, &p).unwrap();
+        let port = start_at(&env, &state, &p, None).unwrap();
+        crate::web_accounts::write_desktop_layout(&env, r#"{"activeGroupId":"g1","groups":[{"id":"g1","name":"","tree":null,"focusedLeafId":null,"zoomedLeafId":null}]}"#).unwrap();
+
+        assert_eq!(call(port, "POST", "/v1/screens/g1/show", "{}").0, 200);
+        assert_eq!(call(port, "POST", "/v1/screens/g9/show", "{}").0, 404);
+        let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"jon","password":"a long password"}"#);
+        let jon = format!("Bearer {}", serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap());
+        assert_eq!(call_as(port, "POST", "/v1/screens/g1/show", Some(&jon), "{}").0, 403);
+        assert_eq!(*shown.lock().unwrap(), vec!["g1".to_string()]);
+
+        let outside = enc(&std::env::temp_dir().to_string_lossy());
+        assert_eq!(call(port, "GET", &format!("/v1/questions?dir={outside}"), "").0, 400);
+        assert_eq!(call(port, "POST", &format!("/v1/permissions/r1/reply?dir={outside}"), r#"{"reply":"once"}"#).0, 400);
+        assert_eq!(call(port, "PATCH", "/v1/sessions/ses_x", "{}").0, 400);
+        assert_eq!(call(port, "GET", "/v1/sessions/find?q=", "").0, 400);
+        assert_eq!(call(port, "GET", "/v1/sessions/find?q=anything", "").1, "[]", "no runtime database yet: nothing found");
+        stop(&env, &state);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A terminal's agent is found on its pane: the desktop window's for the
     /// token, the account's own Screens for an account (where a browser names
     /// the shell `w<browser>-<pane>`). One that has exited does not count.
@@ -3527,6 +3708,7 @@ mod tests {
             assets: Arc::new(NoAssets),
             terminals: None,
             on_desktop_layout: None,
+            on_show_screen: None,
             on_sessions_changed: None,
         };
         (ctx, root)

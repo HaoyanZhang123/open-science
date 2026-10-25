@@ -33,9 +33,15 @@ pub fn state_for(app: &AppHandle) -> GatewayState {
     let on_desktop_layout = Arc::new(move |json: &str| {
         let _ = layout_emitter.emit("gateway:desktop-layout", json.to_string());
     });
+    // A client asked the window to show one of its Screens (`osd screen show`).
+    let show_emitter = app.clone();
+    let on_show_screen = Arc::new(move |id: &str| {
+        let _ = show_emitter.emit("gateway:show-screen", id.to_string());
+    });
     GatewayState::new(assets, Some(on_sessions_changed))
         .with_terminals(Arc::new(crate::terminal::GatewayTerminals(app.clone())))
         .with_desktop_layout_listener(on_desktop_layout)
+        .with_show_screen_listener(on_show_screen)
 }
 
 /// Bring the remote-access gateway back up if the user left it enabled.

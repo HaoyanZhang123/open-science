@@ -128,10 +128,22 @@ async function current(): Promise<string> {
   return JSON.stringify({ groups, activeGroupId });
 }
 
-// The window hears about a token client's change from the gateway directly.
+// The window hears about a token client's change from the gateway directly —
+// and about a request to show one of its Screens (`osd screen show`), which
+// the layout cannot carry: which Screen a view shows is its own.
 if (isTauri) {
   void import("@tauri-apps/api/event")
-    .then(({ listen }) => listen<string>("gateway:desktop-layout", (e) => void apply(JSON.parse(e.payload), true)))
+    .then(({ listen }) =>
+      Promise.all([
+        listen<string>("gateway:desktop-layout", (e) => void apply(JSON.parse(e.payload), true)),
+        listen<string>("gateway:show-screen", (e) =>
+          void import("./layout").then(({ useLayoutStore }) => {
+            const st = useLayoutStore.getState();
+            if (st.groups.some((g) => g.id === e.payload)) st.setActiveGroup(e.payload);
+          }),
+        ),
+      ]),
+    )
     .catch(() => {});
 }
 

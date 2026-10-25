@@ -84,6 +84,16 @@ impl Client {
         )
     }
 
+    /// POST a file's bytes as the body (`osd fs put`).
+    pub fn post_bytes(&self, path: &str, bytes: Vec<u8>) -> Result<Value, String> {
+        self.json(
+            self.http
+                .post(self.url(path))
+                .header("Content-Type", "application/octet-stream")
+                .body(bytes),
+        )
+    }
+
     pub fn delete(&self, path: &str) -> Result<Value, String> {
         self.json(self.http.delete(self.url(path)))
     }

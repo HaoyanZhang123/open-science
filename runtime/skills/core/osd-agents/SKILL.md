@@ -13,15 +13,18 @@ are reachable through it:
   and each pane shows a session or a terminal.
 - **Terminals**: shells, some running Claude Code or Codex.
 
-`osd screen ls` shows all of it at once, with the ids every other command takes.
+`osd screen ls` shows all of it at once, with the ids every other command
+takes. `osd session find <words>` finds a conversation by what was said in it.
 
 ## Screens
 
 ```
-osd screen new --sessions 6 --name "Six"      # a new Screen, split evenly among 6 new conversations
-osd screen new ses_a ses_b --terminals 1      # existing conversations and a terminal, side by side
-osd screen add g12 --new                       # one more pane: a new conversation (or a SESSION_ID, or --terminal)
-osd screen close g12                           # close it; the conversations are kept
+osd screen new --sessions 6 --name "Six"          # a new Screen, split evenly among 6 new conversations
+osd screen new ses_a ses_b --terminals 1          # existing conversations and a terminal, side by side
+osd screen new --terminals 3 --run claude          # three terminals, each starting Claude Code
+osd screen add g12 --new                           # one more pane: a new conversation (or a SESSION_ID, or --terminal)
+osd screen show g12                                # bring it up in the user's window
+osd screen close g12                               # close it; the conversations are kept
 ```
 
 New conversations and terminals start in your folder unless you pass
@@ -32,9 +35,12 @@ tab bar right away, and the user stays on the Screen they were looking at.
 
 | You have | Read it | Send to it |
 |---|---|---|
-| a session `ses_…` | `osd session show <id>` | `osd session send <id> "<message>" --wait` |
+| a session `ses_…` | `osd session show <id> --last 2` (its last two turns) | `osd session send <id> "<message>" --wait` |
 | a terminal running Claude Code or Codex | `osd term read <id>` (`--turns 3` for more) | `osd term send <id> "<message>" --wait` |
 | a terminal running a plain shell | `osd term read <id>` (last 40 lines; `--lines N`) | `osd term send <id> "<command>"`. **This runs the command.** |
+
+`osd session wait <id>` waits for a turn someone else started and prints its
+answer; `osd session status <id>` says whether one is running.
 
 Read before you write: a message lands in the middle of someone else's work.
 `osd term read` on an agent says whether it is `working`; a message sent then

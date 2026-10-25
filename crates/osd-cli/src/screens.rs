@@ -201,7 +201,7 @@ pub fn screen_new(args: &Args) -> Result<(), String> {
         panes.push(json!({ "session": s["id"] }));
     }
     for _ in 0..count(args, "terminals", 0)? {
-        panes.push(json!({ "terminal": { "cwd": dir } }));
+        panes.push(json!({ "terminal": { "cwd": dir, "command": args.value("run") } }));
     }
     if panes.is_empty() {
         return Err("nothing to put on it: osd screen new [SESSION_ID…] [--sessions N] [--terminals N]".into());
@@ -234,7 +234,7 @@ pub fn screen_add(args: &Args) -> Result<(), String> {
     let screen = args.at(0, "screen id")?;
     let dir = folder(&client, args)?;
     let pane = if args.has("terminal") {
-        json!({ "terminal": { "cwd": dir } })
+        json!({ "terminal": { "cwd": dir, "command": args.value("run") } })
     } else if args.has("new") {
         json!({ "session": new_session_in(&client, &dir)?["id"] })
     } else {
@@ -245,6 +245,14 @@ pub fn screen_add(args: &Args) -> Result<(), String> {
         Some(s) => println!("session   {s}"),
         None => println!("terminal  {}", added["pane"].as_str().unwrap_or("?")),
     }
+    Ok(())
+}
+
+/// `osd screen show <SCREEN>`: bring it up in the desktop window.
+pub fn screen_show(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let screen = args.at(0, "screen id")?;
+    client.post(&format!("/v1/screens/{screen}/show"), json!({}))?;
     Ok(())
 }
 

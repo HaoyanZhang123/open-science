@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pane {
     Session(String),
-    Terminal { cwd: Option<String> },
+    /// `command` is typed into the shell when it first opens (as the app's
+    /// own "run an agent" terminals do), e.g. `claude`.
+    Terminal { cwd: Option<String>, command: Option<String> },
 }
 
 /// The next free `g<n>` and `p<n>` numbers in a layout.
@@ -54,10 +56,13 @@ impl Ids {
 fn leaf(id: String, pane: &Pane) -> Value {
     match pane {
         Pane::Session(s) => json!({ "kind": "leaf", "id": id, "sessionId": s }),
-        Pane::Terminal { cwd } => {
+        Pane::Terminal { cwd, command } => {
             let mut content = json!({ "kind": "terminal" });
             if let Some(c) = cwd {
                 content["cwd"] = json!(c);
+            }
+            if let Some(c) = command {
+                content["command"] = json!(c);
             }
             json!({ "kind": "leaf", "id": id, "sessionId": null, "content": content })
         }
@@ -214,10 +219,10 @@ mod tests {
     #[test]
     fn grids_of_one_two_and_three() {
         let mut l = Value::Null;
-        let (_, ids) = new_screen(&mut l, "", &[Pane::Terminal { cwd: Some("/repo".into()) }], "").unwrap();
+        let (_, ids) = new_screen(&mut l, "", &[Pane::Terminal { cwd: Some("/repo".into()), command: Some("claude".into()) }], "").unwrap();
         let g = &l["groups"][0];
         assert_eq!(g["tree"]["id"], ids[0].as_str());
-        assert_eq!(g["tree"]["content"], json!({ "kind": "terminal", "cwd": "/repo" }));
+        assert_eq!(g["tree"]["content"], json!({ "kind": "terminal", "cwd": "/repo", "command": "claude" }));
         assert_eq!(l["activeGroupId"], g["id"], "the only Screen is the one shown");
         new_screen(&mut l, "", &[Pane::Session("a".into()), Pane::Session("b".into())], "").unwrap();
         assert_eq!(l["groups"][1]["tree"]["dir"], "row");
@@ -236,10 +241,10 @@ mod tests {
         assert_eq!((t["dir"].as_str(), t["children"][1]["sessionId"].as_str()), (Some("row"), Some("ses_c")));
         assert_eq!(t["children"][0]["id"], "p12", "the old column kept whole");
         // A row gains a column rather than nesting again.
-        add_pane(&mut l, "g7", &Pane::Terminal { cwd: None }).unwrap();
+        add_pane(&mut l, "g7", &Pane::Terminal { cwd: None, command: None }).unwrap();
         assert_eq!(l["groups"][0]["tree"]["children"].as_array().unwrap().len(), 3);
         assert_eq!(id, "p13");
-        assert!(add_pane(&mut l, "g99", &Pane::Terminal { cwd: None }).is_err());
+        assert!(add_pane(&mut l, "g99", &Pane::Terminal { cwd: None, command: None }).is_err());
 
         let (g2, _) = new_screen(&mut l, "", &[Pane::Session("x".into())], "").unwrap();
         l["activeGroupId"] = json!(g2);

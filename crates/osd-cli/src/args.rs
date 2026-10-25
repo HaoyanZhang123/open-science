@@ -61,7 +61,7 @@ impl Args {
         // A second bare word is the subcommand only for the grouped commands;
         // `osd session send <id>` must not lose its id.
         let sub = match command.as_str() {
-            "session" | "screen" | "term" | "project" | "run" | "fs" | "permission" | "auth" | "account" | "model" | "approval"
+            "session" | "screen" | "term" | "question" | "project" | "run" | "fs" | "permission" | "auth" | "account" | "model" | "approval"
                 if !positional.is_empty() =>
             {
                 positional.remove(0)
