@@ -311,8 +311,8 @@ export function SessionView({
   };
   const composerCommands = useMemo(() => {
     const local = [
-      { name: "new", description: t("localCommand.newDescription"), source: "local" },
-      { name: "clear", description: t("localCommand.clearDescription"), source: "local" },
+      { name: "new", description: t("localCommand.newDescription"), source: "local", immediate: true },
+      { name: "clear", description: t("localCommand.clearDescription"), source: "local", immediate: true },
     ];
     const localNames = new Set(local.map((c) => c.name));
     return [...local, ...commands.filter((c) => !localNames.has(c.name))];

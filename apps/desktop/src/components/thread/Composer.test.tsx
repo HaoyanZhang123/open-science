@@ -392,6 +392,36 @@ describe("plan mode (/plan, Shift+Tab, the chip)", () => {
   });
 });
 
+describe("commands that take no arguments", () => {
+  const input = () => screen.getByLabelText("Ask anything");
+  const clear = { name: "clear", source: "local", immediate: true };
+
+  it("run on Enter from the palette — no chip, no second Enter", () => {
+    const onRunCommand = vi.fn();
+    render(<Composer onSend={vi.fn()} onRunCommand={onRunCommand} commands={[clear]} />);
+    fireEvent.change(input(), { target: { value: "/cle" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(onRunCommand).toHaveBeenCalledWith("clear", "");
+    expect((input() as HTMLTextAreaElement).value).toBe("");
+    expect(screen.queryByLabelText("Remove command")).toBeNull();
+  });
+
+  it("only complete on Tab, so a stray Tab never wipes a conversation", () => {
+    const onRunCommand = vi.fn();
+    render(<Composer onSend={vi.fn()} onRunCommand={onRunCommand} commands={[clear]} />);
+    fireEvent.change(input(), { target: { value: "/cle" } });
+    fireEvent.keyDown(input(), { key: "Tab" });
+    expect(onRunCommand).not.toHaveBeenCalled();
+  });
+
+  it("/compact asks straight away", () => {
+    render(<Composer onSend={vi.fn()} onRunCommand={vi.fn()} onCompactContext={vi.fn()} />);
+    fireEvent.change(input(), { target: { value: "/comp" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(screen.getByRole("alertdialog", { name: "Compact the context?" })).toBeInTheDocument();
+  });
+});
+
 describe("typing while the agent works", () => {
   const input = () => screen.getByLabelText("Ask anything");
 

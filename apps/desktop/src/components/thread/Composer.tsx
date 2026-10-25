@@ -108,6 +108,8 @@ export interface ComposerCommand {
   name: string;
   description?: string;
   source?: string;
+  /** Takes no arguments, so picking it runs it — no chip to fill in first. */
+  immediate?: boolean;
 }
 
 /** The two approval modes the composer can switch between (Codex-style). Copy
@@ -127,6 +129,7 @@ const APPROVAL_OPTIONS: { mode: ApprovalMode; icon: typeof Hand }[] = [
  *          workspace folder (terminal styling, no model turn).
  *   `/`  — command palette: pick a slash command (config command / skill /
  *          MCP prompt) with ↑/↓ + Tab/Enter, then type arguments and send.
+ *          One that takes no arguments (`immediate`) runs on Enter.
  *          A "/name" that matches no known command stays a plain prompt.
  *          Two of them are the composer's own: `/plan` (plan mode on; with a
  *          message, also sends it; `/plan off` leaves) and `/compact`.
@@ -247,7 +250,7 @@ export function Composer({
       ? [{ name: "plan", description: t("composer.builtin.plan"), source: "local" }]
       : []),
     ...(onCompactContext
-      ? [{ name: "compact", description: t("composer.builtin.compact"), source: "local" }]
+      ? [{ name: "compact", description: t("composer.builtin.compact"), source: "local", immediate: true }]
       : []),
   ];
   const allCommands = [
@@ -398,7 +401,18 @@ export function Composer({
 
   // Committing a command turns it into a chip; the input then holds only the
   // arguments — the "/name" can never degrade into ordinary prompt text.
-  const pick = (c: ComposerCommand) => {
+  // Enter or a click on a command that takes no arguments runs it outright
+  // (`/clear`, `/compact`); Tab only completes it into a chip, so a stray Tab
+  // can never wipe a conversation.
+  const pick = (c: ComposerCommand, run = true) => {
+    if (c.immediate && run) {
+      setHist(null);
+      if (runCommand(c.name, "", false)) {
+        recordHistory(`/${c.name}`);
+        setValue("");
+      }
+      return;
+    }
     setCommand(c.name);
     setValue("");
     taRef.current?.focus();
@@ -615,7 +629,7 @@ export function Composer({
       }
       if (e.key === "Tab" || e.key === "Enter") {
         e.preventDefault();
-        pick(matches[selIndex]);
+        pick(matches[selIndex], e.key === "Enter");
         return;
       }
     }
