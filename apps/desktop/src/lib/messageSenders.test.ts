@@ -25,8 +25,8 @@ describe("message senders", () => {
       "ses_a",
       (id) => (id === "ses_b" ? "Coordinator" : undefined),
     );
-    expect(senders.get("Hi from lab1 on the web.")).toEqual({ account: "lab1", viaSession: undefined });
-    expect(senders.get("what did you tell lab1?")).toEqual({ account: null, viaSession: "Coordinator" });
+    expect(senders.get("Hi from lab1 on the web.")).toEqual({ account: "lab1" });
+    expect(senders.get("what did you tell lab1?")).toEqual({ account: null, viaId: "ses_b", viaSession: "Coordinator" });
     expect(senders.has("my own message")).toBe(false);
     expect(senders.has("elsewhere")).toBe(false);
   });
@@ -34,6 +34,6 @@ describe("message senders", () => {
   it("a long message is matched by the start the log keeps", () => {
     const long = "x".repeat(600);
     const senders = sendersFrom([entry("account:lab1", `${"x".repeat(500)}… (600 characters)`)], "ses_a");
-    expect(senders.get(long.slice(0, 200))).toEqual({ account: "lab1", viaSession: undefined });
+    expect(senders.get(long.slice(0, 200))).toEqual({ account: "lab1" });
   });
 });

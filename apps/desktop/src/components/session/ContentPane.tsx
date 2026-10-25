@@ -6,6 +6,7 @@ import { draftKeyFor, useRuntimeStore } from "@/lib/runtime";
 import { startPaneDrag } from "@/lib/dragPane";
 import { extOf } from "@/lib/artifacts";
 import { TerminalPane } from "@/components/terminal/TerminalPane";
+import { TerminalSenders } from "@/components/terminal/TerminalSenders";
 import { InlineName } from "@/components/ui/InlineName";
 import { NotebookEditor } from "@/components/notebook/NotebookEditor";
 import { FilesPage } from "@/app/routes/FilesPage";
@@ -102,6 +103,7 @@ export function ContentPane({
               </span>
             )}
             <div className="flex-1" />
+            <TerminalSenders leafId={leafId} />
             <button
               onClick={onClose}
               className="rounded-md p-1 text-muted transition-colors hover:bg-border hover:text-error"

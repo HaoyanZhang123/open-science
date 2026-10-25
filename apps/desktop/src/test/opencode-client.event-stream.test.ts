@@ -48,4 +48,29 @@ describe("OpenCodeClient with a carried event stream", () => {
     await expect(ready).rejects.toThrow(/Could not open/);
     expect(opens[0].stop).toHaveBeenCalled();
   });
+
+  it("surfaces a user message's words, whole, so a message sent from elsewhere can be shown", async () => {
+    const { opener, opens } = carried();
+    const client = new OpenCodeClient({ baseUrl: "http://gw", eventStream: opener });
+    const events: OpenCodeEvent[] = [];
+    client.onEvent((e) => events.push(e));
+    const ready = client.connect();
+    opens[0].h.onOpen();
+    await ready;
+    const send = (type: string, properties: unknown) => opens[0].h.onMessage(JSON.stringify({ type, properties }));
+    send("message.updated", { info: { id: "msg_u", role: "user", sessionID: "ses_1" } });
+    send("message.part.updated", { part: { id: "p1", type: "text", text: "Ask from ", messageID: "msg_u", sessionID: "ses_1" } });
+    send("message.part.updated", { part: { id: "p2", type: "text", text: "agent B", messageID: "msg_u", sessionID: "ses_1" } });
+    send("message.part.updated", {
+      part: { id: "p3", type: "text", text: "bookkeeping", synthetic: true, messageID: "msg_u", sessionID: "ses_1" },
+    });
+    const words = events.filter((e) => e.type === "user.message");
+    expect(words).toEqual([
+      { type: "user.message", sessionId: "ses_1", messageID: "msg_u", text: "Ask from " },
+      { type: "user.message", sessionId: "ses_1", messageID: "msg_u", text: "Ask from agent B" },
+    ]);
+    // Still never mistaken for the agent's own text.
+    expect(events.some((e) => e.type === "text.updated")).toBe(false);
+    client.close();
+  });
 });

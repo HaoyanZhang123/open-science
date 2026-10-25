@@ -1714,19 +1714,31 @@ describe("edit a past user message", () => {
   async function sendAndFinish(messageID: string) {
     await useRuntimeStore.getState().sendPrompt("hi");
     mocks.fireEvent({ type: "message.agent", sessionId: "ses_new", messageID, agent: "build" });
+    mocks.fireEvent({ type: "user.message", sessionId: "ses_new", messageID, text: "hi" });
     mocks.fireEvent({ type: "text.updated", sessionId: "ses_new", partId: "t1", text: "wrong answer" });
     mocks.fireEvent({ type: "session.idle", sessionId: "ses_new" });
   }
 
-  it("tags the live user block with its message id from message.agent", async () => {
+  it("tags the live user block with its message id when the runtime reports the message", async () => {
     await useRuntimeStore.getState().sendPrompt("hi");
     expect(useRuntimeStore.getState().threads["ses_new"].blocks[0]).toEqual({ kind: "user", text: "hi" });
     mocks.fireEvent({ type: "message.agent", sessionId: "ses_new", messageID: "msg_1", agent: "build" });
-    expect(useRuntimeStore.getState().threads["ses_new"].blocks[0]).toEqual({
-      kind: "user",
-      text: "hi",
-      messageID: "msg_1",
-    });
+    mocks.fireEvent({ type: "user.message", sessionId: "ses_new", messageID: "msg_1", text: "hi" });
+    expect(useRuntimeStore.getState().threads["ses_new"].blocks).toEqual([
+      { kind: "user", text: "hi", messageID: "msg_1" },
+    ]);
+  });
+
+  it("shows a message sent from elsewhere — another agent, tab or the CLI — once", async () => {
+    await sendAndFinish("msg_1");
+    mocks.fireEvent({ type: "message.agent", sessionId: "ses_new", messageID: "msg_2", agent: "build" });
+    mocks.fireEvent({ type: "user.message", sessionId: "ses_new", messageID: "msg_2", text: "From the other " });
+    mocks.fireEvent({ type: "user.message", sessionId: "ses_new", messageID: "msg_2", text: "From the other agent" });
+    const users = useRuntimeStore.getState().threads["ses_new"].blocks.filter((b) => b.kind === "user");
+    expect(users).toEqual([
+      { kind: "user", text: "hi", messageID: "msg_1" },
+      { kind: "user", text: "From the other agent", messageID: "msg_2" },
+    ]);
   });
 
   it("reverts to the message, drops it and the reply, and resends the new text", async () => {

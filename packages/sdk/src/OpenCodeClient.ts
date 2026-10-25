@@ -271,6 +271,9 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
   private readonly requestTimeoutMs: number;
   /** messageID → role, learned from message.updated, to skip echoed user parts. */
   private readonly roles = new Map<string, string>();
+  /** Each user message's text parts, by part id in arrival order, so a
+   *  message of several parts is emitted whole (see `user.message`). */
+  private readonly userTexts = new Map<string, Map<string, string>>();
   /** partID → accumulated text of a streaming text part. OpenCode publishes the
    *  full part only at text-start (empty) and text-end; every token in between
    *  arrives as a message.part.delta that must be summed here — otherwise the
@@ -1576,8 +1579,31 @@ export class OpenCodeClient extends BaseAgentRuntime implements AgentRuntime {
           part.type !== "compaction" &&
           part.messageID &&
           this.roles.get(String(part.messageID)) === "user"
-        )
+        ) {
+          // Its words are surfaced, though, because the message may not be
+          // ours: another agent, another tab, the CLI or a web account can
+          // send to this conversation, and dropping the part left their
+          // message invisible until a reload. The app matches it to its own
+          // echo. Synthetic parts (a `!` shell turn's bookkeeping) are not words.
+          const tp = part as { id?: string; text?: string; synthetic?: boolean };
+          if (part.type === "text" && !tp.synthetic && tp.id && part.sessionID) {
+            const mid = String(part.messageID);
+            let texts = this.userTexts.get(mid);
+            if (!texts) {
+              this.userTexts.set(mid, (texts = new Map()));
+              // Only a message still arriving needs its parts; keep the recent ones.
+              if (this.userTexts.size > 200) this.userTexts.delete(this.userTexts.keys().next().value!);
+            }
+            texts.set(tp.id, tp.text ?? "");
+            this.emit({
+              type: "user.message",
+              sessionId: String(part.sessionID),
+              messageID: mid,
+              text: [...texts.values()].join(""),
+            });
+          }
           return;
+        }
         const sessionId = String(part.sessionID ?? "");
         if (part.type === "text") {
           const t = part as { id: string; text: string };

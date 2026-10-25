@@ -3439,27 +3439,22 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
             },
           }));
           return;
-        case "message.agent": {
-          // A user message landed. Tag the newest still-untagged user block in
-          // this thread with its server id — the optimistic echo from a send
-          // starts id-less, and the id is what makes the row editable later.
-          // Sends are serialized, so the last untagged block is this message.
-          if (event.messageID) {
-            const mid = event.messageID;
-            set((s) => {
-              const cur = s.threads[event.sessionId];
-              if (!cur) return {};
-              const blocks = [...cur.blocks];
-              for (let i = blocks.length - 1; i >= 0; i--) {
-                const b = blocks[i];
-                if (b.kind === "user" && !b.messageID) {
-                  blocks[i] = { ...b, messageID: mid };
-                  return { threads: { ...s.threads, [event.sessionId]: { ...cur, blocks } } };
-                }
-              }
-              return {};
+        case "user.message": {
+          const text = event.text.trim();
+          // The app's own injected turns are not the user's words (see historyToThread).
+          if (!text || text === AUTO_REVIEW_PROMPT || isGoalInjectedPrompt(text)) return;
+          set((s) => {
+            const cur = s.threads[event.sessionId];
+            if (!cur) return {};
+            const blocks = foldUserMessage(cur.blocks, event.messageID, text, {
+              sendingHere: !!s.sendingSessions[event.sessionId],
+              asTypedCommand: commandEchoReader(s.commands),
             });
-          }
+            return blocks ? { threads: { ...s.threads, [event.sessionId]: { ...cur, blocks } } } : {};
+          });
+          return;
+        }
+        case "message.agent": {
           // A user message names its agent. This is how the pill follows
           // OpenCode's own plan_exit "Yes" (it injects a build user message)
           // — and it self-confirms our own sends. Any OTHER agent (the auto-review
@@ -5276,20 +5271,73 @@ export function lastAgentMode(messages: HistoryMessage[]): AgentMode {
   return "build";
 }
 
-export function historyToThread(messages: HistoryMessage[], commands?: CommandInfo[]): FoldState {
-  const blocks: ThreadBlock[] = [];
-  // OpenCode stores a slash command's EXPANDED template as the user message —
-  // show the "/name args" the user actually typed instead. Templates either
-  // embed a $ARGUMENTS placeholder anywhere (match prefix + suffix around it,
-  // e.g. the goal plugin's <goal_command_arguments> block) or carry no
-  // placeholder (typed args are appended after the template, no marker).
-  // Longest template first, so one template being a prefix of another's
-  // expansion can't mis-attribute.
+/**
+ * A user message the runtime reports, folded into a thread.
+ *
+ * Usually it is our own send, already shown as an id-less echo: the echo gets
+ * the server's id (the handle for editing it later), matched by its words — or,
+ * when this window has a send in flight and the words differ (a command's
+ * echo, say), the newest id-less echo is ours. Otherwise the message came from
+ * somewhere else — another agent, another tab, the CLI, a web account — and is
+ * added, as a reload would show it. Null when there is nothing to change.
+ *
+ * Tagging used to happen on `message.agent`, by position: the newest id-less
+ * block got the id. A message from elsewhere then stamped its id onto an old
+ * `!` shell echo and was never shown.
+ */
+export function foldUserMessage(
+  blocks: ThreadBlock[],
+  messageID: string,
+  text: string,
+  opts: { sendingHere: boolean; asTypedCommand: (text: string) => string | undefined },
+): ThreadBlock[] | null {
+  const shown = opts.asTypedCommand(text) ?? text;
+  // Already shown. A message of several text parts arrives a part at a time,
+  // each event carrying the text so far: let it grow. Anything else (our own
+  // echo of a command, say) keeps the words it has.
+  const known = blocks.findIndex((b) => b.kind === "user" && b.messageID === messageID);
+  if (known >= 0) {
+    const b = blocks[known] as Extract<ThreadBlock, { kind: "user" }>;
+    if (b.text === shown || !shown.startsWith(b.text)) return null;
+    const next = [...blocks];
+    next[known] = { ...b, text: shown };
+    return next;
+  }
+  const squash = (t: string) => t.split(/\s+/).filter(Boolean).join(" ");
+  const untagged = (b: ThreadBlock) => b.kind === "user" && !b.messageID && !b.text.startsWith("! ");
+  let at = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (untagged(b) && b.kind === "user" && squash(b.text) === squash(shown)) {
+      at = i;
+      break;
+    }
+  }
+  if (at < 0 && opts.sendingHere) {
+    for (let i = blocks.length - 1; i >= 0 && at < 0; i--) if (untagged(blocks[i])) at = i;
+  }
+  const next = [...blocks];
+  if (at >= 0) {
+    next[at] = { ...(blocks[at] as Extract<ThreadBlock, { kind: "user" }>), messageID };
+    return next;
+  }
+  next.push({ kind: "user", text: shown, messageID });
+  return next;
+}
+
+/** OpenCode stores a slash command's EXPANDED template as the user message —
+ *  this recovers the "/name args" the user actually typed, or undefined when
+ *  the text is no command's expansion. Templates either embed a $ARGUMENTS
+ *  placeholder anywhere (match prefix + suffix around it, e.g. the goal
+ *  plugin's <goal_command_arguments> block) or carry no placeholder (typed args
+ *  are appended after the template, no marker). Longest template first, so one
+ *  template being a prefix of another's expansion can't mis-attribute. */
+export function commandEchoReader(commands?: CommandInfo[]): (text: string) => string | undefined {
   const templates = (commands ?? [])
     .filter((c) => c.template?.trim())
     .map((c) => ({ name: c.name, template: c.template!.trim() }))
     .sort((a, b) => b.template.length - a.template.length);
-  const asTypedCommand = (text: string): string | undefined => {
+  return (text: string): string | undefined => {
     for (const t of templates) {
       const at = t.template.indexOf("$ARGUMENTS");
       if (at < 0) {
@@ -5307,6 +5355,11 @@ export function historyToThread(messages: HistoryMessage[], commands?: CommandIn
     }
     return undefined;
   };
+}
+
+export function historyToThread(messages: HistoryMessage[], commands?: CommandInfo[]): FoldState {
+  const blocks: ThreadBlock[] = [];
+  const asTypedCommand = commandEchoReader(commands);
   // A step frozen mid-run (the runtime restarted or the turn was killed before
   // it finished) must not spin forever in history — render it quietly and say
   // once, at the end, that the turn was interrupted.

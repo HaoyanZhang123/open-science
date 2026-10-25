@@ -69,6 +69,16 @@ export interface SessionIdleEvent {
  *  OpenCode injects itself when the plan_exit question is answered Yes. The
  *  app syncs its per-session agent-mode state from this (never from question
  *  text, which is locale/version-brittle). */
+/** The words of a user message, as the runtime stored them: its non-synthetic
+ *  text parts joined, re-emitted whole as parts arrive. Lets the app show a
+ *  message it did not send itself — another agent's, another tab's, the CLI's. */
+export interface UserMessageEvent {
+  type: "user.message";
+  sessionId: string;
+  messageID: string;
+  text: string;
+}
+
 export interface MessageAgentEvent {
   type: "message.agent";
   sessionId: string;
@@ -204,6 +214,7 @@ export type OpenCodeEvent =
   | ToolUpdatedEvent
   | SessionIdleEvent
   | MessageAgentEvent
+  | UserMessageEvent
   | SessionRetryEvent
   | RuntimeErrorEvent
   | QuestionAskedEvent

@@ -13,7 +13,9 @@ import { useRuntimeStore } from "./runtime";
 export interface MessageSender {
   /** The account that sent it, or null when an agent sent it on the owner's behalf. */
   account: string | null;
-  /** The conversation whose agent sent it: its title, or its id without one. */
+  /** The conversation whose agent sent it: its id … */
+  viaId?: string;
+  /** … and its title, or its id when it has none. */
   viaSession?: string;
 }
 
@@ -32,7 +34,10 @@ export function sendersFrom(
     if (e.target !== sessionId || e.action !== "session.prompt" || !e.detail) continue;
     const account = e.actor.startsWith("account:") ? e.actor.slice("account:".length) : null;
     if (!account && !e.via) continue;
-    out.set(squash(unclip(e.detail)), { account, viaSession: e.via && (titleOf(e.via) || e.via) });
+    out.set(squash(unclip(e.detail)), {
+      account,
+      ...(e.via ? { viaId: e.via, viaSession: titleOf(e.via) || e.via } : {}),
+    });
   }
   return out;
 }
@@ -47,15 +52,21 @@ export function useMessageSenders(
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
-    void queryAudit({ target: sessionId, action: "session.prompt", limit: 1000 })
-      .then((entries) => {
-        if (cancelled) return;
-        const { sessions } = useRuntimeStore.getState();
-        setSenders(sendersFrom(entries, sessionId, (id) => sessions.find((s) => s.id === id)?.title));
-      })
-      .catch(() => {});
+    const load = () =>
+      void queryAudit({ target: sessionId, action: "session.prompt", limit: 1000 })
+        .then((entries) => {
+          if (cancelled) return;
+          const { sessions } = useRuntimeStore.getState();
+          setSenders(sendersFrom(entries, sessionId, (id) => sessions.find((s) => s.id === id)?.title));
+        })
+        .catch(() => {});
+    load();
+    // The gateway writes its audit line once the message is handed over, which
+    // can be after the message itself reached this window: look again shortly.
+    const again = window.setTimeout(load, 2000);
     return () => {
       cancelled = true;
+      window.clearTimeout(again);
     };
   }, [sessionId, userMessages]);
   // Stable until the senders change: it rides on the thread's handlers, whose

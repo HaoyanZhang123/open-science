@@ -24,6 +24,7 @@ import { HSCROLL_ATTR } from "@/lib/wheelChain";
 import { HOVER_HOST } from "@/lib/hoverTracking";
 import { RunningDot } from "./RunningDot";
 import type { MessageSender } from "@/lib/messageSenders";
+import { SenderBadge } from "./SenderBadge";
 
 /** Streaming markdown throttle interval, ms (#157). The re-parse cost is
  *  linear in the message length, so the window scales with it: 90ms for short
@@ -169,16 +170,9 @@ export const UserMessage = memo(function UserMessage({
     );
   }
 
-  const senderLabel = sender
-    ? sender.account
-      ? sender.viaSession
-        ? t("message.sentByAccountAgent", { account: sender.account, session: sender.viaSession })
-        : sender.account
-      : t("message.sentByAgent", { session: sender.viaSession })
-    : null;
   return (
     <div {...{ [HOVER_HOST]: "" }} className="relative flex flex-col items-end">
-      {senderLabel && <div className="mb-1 max-w-[85%] truncate pr-1 text-xs text-muted">{senderLabel}</div>}
+      {sender && <SenderBadge sender={sender} className="mb-1" />}
       <div className="w-fit max-w-[85%] whitespace-pre-wrap break-words rounded-card bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed text-text">
         {block.text}
       </div>

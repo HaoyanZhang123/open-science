@@ -409,8 +409,8 @@
       "edit": "修改并重发",
       "revert": "回退到这里"
     },
-    "sentByAgent": "由 {{session}} 里的 Agent 发送",
-    "sentByAccountAgent": "{{account}}，经由 {{session}} 里的 Agent"
+    "sentByAgentFull": "由「{{session}}」里的 Agent 发送（{{id}}）。点击复制它的引用，可直接交给 Agent。",
+    "sentByAccount": "由账号 {{account}} 发送"
   },
   "historyRepair": {
     "reason": {
@@ -518,7 +518,8 @@
       "close": "关闭查找",
       "none": "无结果",
       "find": "查找…"
-    }
+    },
+    "recentInput": "最近来自外部的输入："
   },
   "splitInto": {
     "session": "会话"

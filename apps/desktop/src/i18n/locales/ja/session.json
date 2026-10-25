@@ -409,8 +409,8 @@
       "edit": "編集して再送信",
       "revert": "ここまで戻す"
     },
-    "sentByAgent": "{{session}} のエージェントから",
-    "sentByAccountAgent": "{{account}}（{{session}} のエージェント経由）"
+    "sentByAgentFull": "「{{session}}」のエージェントが送信（{{id}}）。クリックでエージェント用の参照をコピー。",
+    "sentByAccount": "アカウント {{account}} が送信"
   },
   "historyRepair": {
     "reason": {
@@ -518,7 +518,8 @@
       "close": "検索を閉じる",
       "none": "該当なし",
       "find": "検索…"
-    }
+    },
+    "recentInput": "外部からの最近の入力："
   },
   "splitInto": {
     "session": "セッション"

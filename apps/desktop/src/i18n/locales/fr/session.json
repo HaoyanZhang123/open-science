@@ -418,8 +418,8 @@
       "edit": "Modifier et renvoyer",
       "revert": "Revenir ici"
     },
-    "sentByAgent": "par l’agent de {{session}}",
-    "sentByAccountAgent": "{{account}}, via l’agent de {{session}}"
+    "sentByAgentFull": "Envoyé par l’agent de « {{session}} » ({{id}}). Cliquez pour copier sa référence pour un agent.",
+    "sentByAccount": "Envoyé par le compte {{account}}"
   },
   "historyRepair": {
     "reason": {
@@ -530,7 +530,8 @@
       "close": "Fermer la recherche",
       "none": "aucun résultat",
       "find": "Rechercher…"
-    }
+    },
+    "recentInput": "Saisies récentes venues de l’extérieur :"
   },
   "splitInto": {
     "session": "Session"

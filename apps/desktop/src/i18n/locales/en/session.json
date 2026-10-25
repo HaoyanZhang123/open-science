@@ -418,8 +418,8 @@
       "edit": "Edit & resend",
       "revert": "Revert here"
     },
-    "sentByAgent": "via the agent in {{session}}",
-    "sentByAccountAgent": "{{account}}, via the agent in {{session}}"
+    "sentByAgentFull": "Sent by the agent in “{{session}}” ({{id}}). Click to copy its reference for an agent.",
+    "sentByAccount": "Sent by the account {{account}}"
   },
   "historyRepair": {
     "reason": {
@@ -530,7 +530,8 @@
       "close": "Close find",
       "none": "no results",
       "find": "Find…"
-    }
+    },
+    "recentInput": "Recent input from outside:"
   },
   "splitInto": {
     "session": "Session"

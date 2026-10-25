@@ -418,8 +418,8 @@
       "edit": "Bearbeiten & erneut senden",
       "revert": "Hierher zurücksetzen"
     },
-    "sentByAgent": "vom Agenten in {{session}}",
-    "sentByAccountAgent": "{{account}}, über den Agenten in {{session}}"
+    "sentByAgentFull": "Gesendet vom Agenten in „{{session}}“ ({{id}}). Klicken, um seinen Verweis für einen Agenten zu kopieren.",
+    "sentByAccount": "Gesendet vom Konto {{account}}"
   },
   "historyRepair": {
     "reason": {
@@ -530,7 +530,8 @@
       "close": "Suche schließen",
       "none": "keine Treffer",
       "find": "Suchen…"
-    }
+    },
+    "recentInput": "Letzte Eingaben von außen:"
   },
   "splitInto": {
     "session": "Sitzung"

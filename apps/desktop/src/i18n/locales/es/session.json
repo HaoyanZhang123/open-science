@@ -418,8 +418,8 @@
       "edit": "Editar y reenviar",
       "revert": "Revertir aquí"
     },
-    "sentByAgent": "del agente de {{session}}",
-    "sentByAccountAgent": "{{account}}, mediante el agente de {{session}}"
+    "sentByAgentFull": "Enviado por el agente de «{{session}}» ({{id}}). Haz clic para copiar su referencia para un agente.",
+    "sentByAccount": "Enviado por la cuenta {{account}}"
   },
   "historyRepair": {
     "reason": {
@@ -530,7 +530,8 @@
       "close": "Cerrar búsqueda",
       "none": "sin resultados",
       "find": "Buscar…"
-    }
+    },
+    "recentInput": "Entradas recientes desde fuera:"
   },
   "splitInto": {
     "session": "Sesión"

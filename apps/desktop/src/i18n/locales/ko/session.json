@@ -409,8 +409,8 @@
       "edit": "편집 후 다시 보내기",
       "revert": "여기로 되돌리기"
     },
-    "sentByAgent": "{{session}}의 에이전트가 보냄",
-    "sentByAccountAgent": "{{account}}, {{session}}의 에이전트를 통해"
+    "sentByAgentFull": "“{{session}}”의 에이전트가 보냄({{id}}). 클릭하면 에이전트용 참조를 복사합니다.",
+    "sentByAccount": "계정 {{account}}이(가) 보냄"
   },
   "historyRepair": {
     "reason": {
@@ -518,7 +518,8 @@
       "close": "찾기 닫기",
       "none": "결과 없음",
       "find": "찾기…"
-    }
+    },
+    "recentInput": "외부에서 온 최근 입력:"
   },
   "splitInto": {
     "session": "세션"
