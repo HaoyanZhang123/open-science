@@ -25,6 +25,7 @@ import { HOVER_HOST } from "@/lib/hoverTracking";
 import { RunningDot } from "./RunningDot";
 import type { MessageSender } from "@/lib/messageSenders";
 import { SenderBadge } from "./SenderBadge";
+import { useRuntimeStore } from "@/lib/runtime";
 
 /** Streaming markdown throttle interval, ms (#157). The re-parse cost is
  *  linear in the message length, so the window scales with it: 90ms for short
@@ -299,6 +300,18 @@ export const AgentMessage = memo(function AgentMessage({
     };
   }, [mentionedKey, directory]);
 
+  // An answer about another conversation names it (`ses_…`) and writes paths
+  // inside ITS folder. Keyed by the folders, so streaming text does not hand
+  // every link a new list to look up again.
+  const linkFoldersKey = useMemo(() => {
+    const { sessions } = useRuntimeStore.getState();
+    const named = [...new Set(shown.match(/\bses_[A-Za-z0-9]{8,}/g) ?? [])]
+      .map((id) => sessions.find((x) => x.id === id)?.directory)
+      .filter((d): d is string => !!d);
+    return [...new Set([directory, ...named].filter((d): d is string => !!d))].join("\n");
+  }, [directory, shown]);
+  const linkFolders = useMemo(() => (linkFoldersKey ? linkFoldersKey.split("\n") : undefined), [linkFoldersKey]);
+
   const copy = async () => {
     try {
       await copyText(markdown);
@@ -313,8 +326,9 @@ export const AgentMessage = memo(function AgentMessage({
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
     <div {...{ [HOVER_HOST]: "" }} data-agent-message className="relative">
-      {/* Paths in the answer are this conversation's files (see LinkFolder). */}
-      <LinkFolder.Provider value={directory}>
+      {/* Paths in the answer are this conversation's files — or those of the
+          conversations it names (see LinkFolder). */}
+      <LinkFolder.Provider value={linkFolders}>
         {segments ? (
           <StreamingMarkdown segments={segments} />
         ) : (

@@ -205,9 +205,10 @@ export function MarkdownViewer({
 /** Inline code that names something openable — a URL, or a path that exists —
  *  becomes a link: underlined on hover, the link menu on click. Anything else
  *  stays plain code; the lookup is cached, so a re-render asks nothing. */
-/** The folder of the conversation a piece of markdown belongs to: its
- *  relative paths are looked up there (see `resolveLink`). */
-export const LinkFolder = createContext<string | undefined>(undefined);
+/** Where a piece of markdown's relative paths are looked up, in order: the
+ *  folder of the conversation it belongs to, then those of the conversations
+ *  it names (see `resolveLink`). */
+export const LinkFolder = createContext<readonly string[] | undefined>(undefined);
 
 function LinkCode({ children, className }: { children: string; className: string }) {
   const [target, setTarget] = useState<LinkTarget | null>(null);

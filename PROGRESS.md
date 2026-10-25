@@ -1,5 +1,7 @@
 # Progress
 
+2026-10-24 21:00 · A path in an answer about ANOTHER conversation was not a link: the user's case was an answer in "检查会话内容是否可读" (folder 2026-10-24-1817) naming files of "安装技能" (2026-10-20-2256) by relative path. Not the line wrap, as reported — a wrapped code span is one element. Links now look in the conversation's own folder, then in the folders of the conversations the answer names (`ses_…`); a full path inside the base folder is a link in the browser too; the osd-agents skill asks for full paths when naming another conversation's files. E2E on the real folders: relative file and folder of the other session, and a full path wrapped over two lines, all links.
+
 2026-10-24 20:30 · The sender mark is type, not a chip: a muted "From" and the conversation's (or account's) name above the message, no border, fill or icon — the bordered pill with a robot icon read as a sticker. Hover still underlines a clickable name and opens the card; click still copies the reference. Same in a terminal's header. Screenshot-checked at rest and on hover.
 
 2026-10-24 20:10 · Sender badges open a card instead of the browser's native tooltip (a beige box with one long sentence): who sent it, the conversation's full title, its id in mono, and "click to copy its reference" under a hairline — the same Radix tooltip card the attachment chips use. A terminal's card lists the recent outside input as time / sender / line. The sentence stays as the aria-label. Screenshot-checked on the web client.

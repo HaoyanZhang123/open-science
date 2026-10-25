@@ -61,6 +61,9 @@ you need and what to send back, in one go:
   nothing back — read it later with the read command.
 - Relay what you learned to the user in your own words. Do not paste a whole
   transcript.
+- A file of the other conversation lives in ITS folder, not yours: when you
+  name one to the user, write the full path (the folder from the reference +
+  the path), so it opens with a click.
 
 ## Limits
 

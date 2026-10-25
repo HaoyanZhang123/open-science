@@ -4,6 +4,7 @@ import { resolveLink } from "./links";
 
 // A conversation's folder under the base folder, as the desktop sees it.
 const tree: Record<string, DirEntry[]> = {
+  "sessions/s2": [],
   "sessions/s1": [{ path: "sessions/s1/research", name: "research", isDir: true, size: 0, modified: 0 }],
   "sessions/s1/research": [
     { path: "sessions/s1/research/report.md", name: "report.md", isDir: false, size: 1, modified: 0 },
@@ -32,5 +33,12 @@ describe("a path in an answer, looked up in its conversation's folder", () => {
     expect(await resolveLink("research/missing.md", "workspace", "/Users/me/OS/sessions/s1")).toBeNull();
     expect(await resolveLink("../s2/secret.md", "workspace", "/Users/me/OS/sessions/s1")).toBeNull();
     expect(await resolveLink("research/report.md", "workspace", "/elsewhere/s1")).toBeNull();
+  });
+
+  it("an answer about another conversation finds that conversation's files", async () => {
+    // Asked in s2, about s1: not in s2's folder, found in s1's.
+    expect(
+      await resolveLink("research/data/", "workspace", ["/Users/me/OS/sessions/s2", "/Users/me/OS/sessions/s1"]),
+    ).toMatchObject({ path: "sessions/s1/research/data", isDir: true });
   });
 });

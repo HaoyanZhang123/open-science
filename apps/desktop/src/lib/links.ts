@@ -108,20 +108,26 @@ function locateLocal(path: string, cwd?: string): Promise<LocalPath | null> {
 export async function resolveLink(
   text: string,
   from: { cwd: string | null } | "workspace" = "workspace",
-  /** The conversation's own folder, when the text is one of its answers: a
-   *  relative path there means a file or folder in it — on any machine the
+  /** The folders a relative path in this text may be in, in order: the
+   *  conversation's own when the text is one of its answers, then those of the
+   *  conversations it names — an agent reporting on another session writes
+   *  that session's paths. A path found there is a link on any machine the
    *  workbench is reached from, the web client included. */
-  folder?: string,
+  folders?: string | readonly string[],
 ): Promise<LinkTarget | null> {
   const url = cleanUrl(text);
   if (/^https?:\/\//.test(url)) return { kind: "url", url };
   const path = cleanPath(text);
   if (!looksLikePath(path)) return null;
   const absolute = path.startsWith("/") || path.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(path);
-  if (!absolute && from === "workspace" && folder) {
-    const found = await inFolder(folder, path);
-    if (found) return found;
+  if (!absolute && from === "workspace" && folders) {
+    for (const folder of typeof folders === "string" ? [folders] : folders) {
+      const found = await inFolder(folder, path);
+      if (found) return found;
+    }
   }
+  // A browser reaches a full path only inside the base folder, as Files does.
+  if (isGatewayWeb && path.startsWith("/")) return inFolder("/", path);
   // Anywhere else on disk is only reachable from the machine itself.
   if (!isTauri || isGatewayWeb) return null;
   const cwd = from === "workspace" ? undefined : (from.cwd ?? undefined);
