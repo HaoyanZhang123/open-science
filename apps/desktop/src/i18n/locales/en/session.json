@@ -422,7 +422,8 @@
     "sentByAccount": "Sent by the account {{account}}",
     "sentByAgentLabel": "Sent by the agent in",
     "sentByAccountLabel": "Sent by the account",
-    "clickToCopyRef": "Click to copy its reference for an agent"
+    "clickToCopyRef": "Click to copy its reference for an agent",
+    "from": "From"
   },
   "historyRepair": {
     "reason": {

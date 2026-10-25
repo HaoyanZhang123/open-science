@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Bot, UserRound } from "lucide-react";
 import { copyReference, sessionReference } from "@/lib/agentReference";
 import type { MessageSender } from "@/lib/messageSenders";
 import { useRuntimeStore } from "@/lib/runtime";
@@ -36,15 +35,19 @@ export function SenderBadge({
   const label = agent
     ? t("message.sentByAgentFull", { session: title, id: sender.viaId })
     : t("message.sentByAccount", { account: sender.account });
+  // Type, not a chip: a muted "From" and the name, nothing around them — a
+  // pill with an icon sat on the message like a sticker.
   const cls = cn(
-    "flex max-w-[60%] items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] leading-4 text-muted",
-    agent && "hover:bg-surface-2 hover:text-text",
+    "group/sender flex max-w-[70%] items-baseline gap-1 text-[11px] leading-4 text-muted",
     className,
   );
+  const name = agent ? (sender.account ? `${sender.account} · ${title}` : title) : sender.account;
   const face = (
     <>
-      {agent ? <Bot size={11} className="shrink-0" /> : <UserRound size={11} className="shrink-0" />}
-      <span className="truncate">{agent ? (sender.account ? `${sender.account} · ${title}` : title) : sender.account}</span>
+      <span className="shrink-0 opacity-70">{t("message.from")}</span>
+      <span className={cn("truncate text-text/70", agent && "decoration-1 underline-offset-2 group-hover/sender:underline")}>
+        {name}
+      </span>
     </>
   );
   const copy = () => {

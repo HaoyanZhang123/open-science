@@ -413,7 +413,8 @@
     "sentByAccount": "由账号 {{account}} 发送",
     "sentByAgentLabel": "由这个会话里的 Agent 发送",
     "sentByAccountLabel": "由账号发送",
-    "clickToCopyRef": "点击复制引用，可直接交给 Agent"
+    "clickToCopyRef": "点击复制引用，可直接交给 Agent",
+    "from": "来自"
   },
   "historyRepair": {
     "reason": {

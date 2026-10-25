@@ -413,7 +413,8 @@
     "sentByAccount": "계정 {{account}}이(가) 보냄",
     "sentByAgentLabel": "이 대화의 에이전트가 보냄",
     "sentByAccountLabel": "계정이 보냄",
-    "clickToCopyRef": "클릭하면 에이전트용 참조를 복사합니다"
+    "clickToCopyRef": "클릭하면 에이전트용 참조를 복사합니다",
+    "from": "보낸 곳"
   },
   "historyRepair": {
     "reason": {

@@ -413,7 +413,8 @@
     "sentByAccount": "アカウント {{account}} が送信",
     "sentByAgentLabel": "このセッションのエージェントが送信",
     "sentByAccountLabel": "アカウントが送信",
-    "clickToCopyRef": "クリックでエージェント用の参照をコピー"
+    "clickToCopyRef": "クリックでエージェント用の参照をコピー",
+    "from": "送信元"
   },
   "historyRepair": {
     "reason": {

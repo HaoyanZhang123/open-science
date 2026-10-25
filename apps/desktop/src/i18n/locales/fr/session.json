@@ -422,7 +422,8 @@
     "sentByAccount": "Envoyé par le compte {{account}}",
     "sentByAgentLabel": "Envoyé par l’agent de",
     "sentByAccountLabel": "Envoyé par le compte",
-    "clickToCopyRef": "Cliquez pour copier sa référence pour un agent"
+    "clickToCopyRef": "Cliquez pour copier sa référence pour un agent",
+    "from": "De"
   },
   "historyRepair": {
     "reason": {
