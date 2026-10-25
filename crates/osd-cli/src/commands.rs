@@ -21,6 +21,9 @@ pub fn run(args: &Args) -> Result<(), String> {
         ("session", "rm") | ("session", "delete") => rm_session(args),
         ("session", "abort") => abort(args),
         ("screen", "ls") | ("screen", "list") => crate::screens::screen_ls(args),
+        ("screen", "new") => crate::screens::screen_new(args),
+        ("screen", "add") => crate::screens::screen_add(args),
+        ("screen", "close") => crate::screens::screen_close(args),
         ("term", "read") => crate::screens::term_read(args),
         ("term", "send") => crate::screens::term_send(args),
         ("audit", _) => crate::screens::audit(args),
@@ -352,7 +355,7 @@ fn new_project(args: &Args) -> Result<(), String> {
 }
 
 /// The workspace folder of the project called `name` (or with that id).
-fn project_dir(client: &Client, name: &str) -> Result<String, String> {
+pub(crate) fn project_dir(client: &Client, name: &str) -> Result<String, String> {
     let list = client.get("/v1/projects")?;
     let rows = list.as_array().cloned().unwrap_or_default();
     let hit = rows.iter().find(|p| {

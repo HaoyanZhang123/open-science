@@ -139,7 +139,7 @@ pub fn screen_ls(args: &Args) -> Result<(), String> {
         return Ok(());
     }
     for s in &screens {
-        println!("{}", s.name);
+        println!("{}  {}", s.id, s.name);
         if s.panes.is_empty() {
             println!("    (empty)");
         }
@@ -163,6 +163,96 @@ pub fn screen_ls(args: &Args) -> Result<(), String> {
             }
         }
     }
+    Ok(())
+}
+
+/// The folder new sessions and terminals go in, and that files the Screen
+/// under a project: `--project NAME`, `--directory DIR`, else the gateway's.
+fn folder(client: &Client, args: &Args) -> Result<Option<String>, String> {
+    if let Some(name) = args.value("project") {
+        return crate::commands::project_dir(client, &name).map(Some);
+    }
+    Ok(args.value("directory"))
+}
+
+fn new_session_in(client: &Client, dir: &Option<String>) -> Result<Value, String> {
+    let mut body = json!({});
+    if let Some(d) = dir {
+        body["directory"] = json!(d);
+    }
+    client.post("/v1/sessions", body)
+}
+
+/// `osd screen new [ID…] [--sessions N] [--terminals N] [--name N] [--project P | --directory D]`
+pub fn screen_new(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let mut dir = folder(&client, args)?;
+    let mut panes: Vec<Value> = args.positional.iter().map(|id| json!({ "session": id })).collect();
+    // Existing conversations file the Screen under their project.
+    if dir.is_none() && !args.positional.is_empty() {
+        let all = client.get("/v1/sessions")?;
+        dir = all.as_array().into_iter().flatten().find(|s| s["id"] == args.positional[0].as_str()).and_then(|s| s["directory"].as_str().map(str::to_string));
+    }
+    for _ in 0..count(args, "sessions", 0)? {
+        let s = new_session_in(&client, &dir)?;
+        if dir.is_none() {
+            dir = s["directory"].as_str().map(str::to_string);
+        }
+        panes.push(json!({ "session": s["id"] }));
+    }
+    for _ in 0..count(args, "terminals", 0)? {
+        panes.push(json!({ "terminal": { "cwd": dir } }));
+    }
+    if panes.is_empty() {
+        return Err("nothing to put on it: osd screen new [SESSION_ID…] [--sessions N] [--terminals N]".into());
+    }
+    let mut body = json!({ "panes": panes });
+    if let Some(name) = args.value("name") {
+        body["name"] = json!(name);
+    }
+    if let Some(d) = &dir {
+        body["directory"] = json!(d);
+    }
+    let made = client.post("/v1/screens", body)?;
+    if args.has("json") {
+        println!("{}", serde_json::to_string_pretty(&json!({ "screen": made["id"], "panes": made["panes"], "contents": panes })).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
+    println!("Screen {}", made["id"].as_str().unwrap_or("?"));
+    for (id, p) in made["panes"].as_array().into_iter().flatten().zip(&panes) {
+        match p["session"].as_str() {
+            Some(s) => println!("    session   {s}"),
+            None => println!("    terminal  {}", id.as_str().unwrap_or("?")),
+        }
+    }
+    Ok(())
+}
+
+/// `osd screen add <SCREEN> [SESSION_ID | --new | --terminal] [--project P | --directory D]`
+pub fn screen_add(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let screen = args.at(0, "screen id")?;
+    let dir = folder(&client, args)?;
+    let pane = if args.has("terminal") {
+        json!({ "terminal": { "cwd": dir } })
+    } else if args.has("new") {
+        json!({ "session": new_session_in(&client, &dir)?["id"] })
+    } else {
+        json!({ "session": args.at(1, "session id (or --new, or --terminal)")? })
+    };
+    let added = client.post(&format!("/v1/screens/{screen}/panes"), pane.clone())?;
+    match pane["session"].as_str() {
+        Some(s) => println!("session   {s}"),
+        None => println!("terminal  {}", added["pane"].as_str().unwrap_or("?")),
+    }
+    Ok(())
+}
+
+/// `osd screen close <SCREEN>`
+pub fn screen_close(args: &Args) -> Result<(), String> {
+    let client = Client::connect(args)?;
+    let screen = args.at(0, "screen id")?;
+    client.delete(&format!("/v1/screens/{screen}"))?;
     Ok(())
 }
 

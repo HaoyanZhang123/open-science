@@ -670,6 +670,15 @@ fn audit_call(req: &Request) -> Option<AuditCall> {
             }
             ("POST", ["fs", "discard"]) => call("file.discard", req.query_get("name"), None),
             ("POST", ["projects"]) => call("project.create", field("name"), None),
+            ("POST", ["screens"]) => call("screen.new", field("name").filter(|n| !n.is_empty()), Some(format!("{} panes", body()["panes"].as_array().map_or(0, Vec::len)))),
+            ("POST", ["screens", _, "panes"]) => call("screen.add", id(1), words(String::from_utf8_lossy(&req.body).into_owned())),
+            ("DELETE", ["screens", _]) => call("screen.close", id(1), None),
+            // A browser saves its whole layout on every change, which is no news.
+            // A script or an agent overwriting it whole is: it can undo what the
+            // window just did. (`osd screen` edits it in place instead.)
+            ("PUT", ["layout", "desktop"]) if !req.header("user-agent").is_some_and(|ua| ua.contains("Mozilla")) => {
+                call("layout.replace", None, None)
+            }
             ("POST", ["terminals", _]) => call("terminal.open", id(1), None),
             ("DELETE", ["terminals", _]) => call("terminal.close", id(1), None),
             ("POST", ["terminals", _, "input"]) => call("terminal.input", id(1), field("data")),
@@ -899,6 +908,73 @@ fn agent_send_limited(req: &Request, ctx: &Ctx, rest: &str) -> bool {
     }
     times.push(now);
     false
+}
+
+/// One layout change at a time, so two `osd screen` calls cannot each read
+/// the layout before the other has written it.
+static LAYOUT_EDIT: Mutex<()> = Mutex::new(());
+
+/// Change the Screens this caller works in — the desktop window's for the
+/// token (which the window shows at once, as it does a token client's change),
+/// an account's own for an account — by editing the saved layout in place.
+fn edit_layout<T>(ctx: &Ctx, who: &Principal, edit: impl FnOnce(&mut serde_json::Value) -> Result<T, String>) -> Result<T, String> {
+    let _one = LAYOUT_EDIT.lock().unwrap_or_else(|e| e.into_inner());
+    let saved = match who {
+        Principal::Token => crate::web_accounts::read_desktop_layout(&ctx.env).map(|(_, json)| json),
+        Principal::User { name, .. } => crate::web_accounts::read_layout(&ctx.env, name),
+    };
+    let mut layout: serde_json::Value = saved.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+    let out = edit(&mut layout)?;
+    let json = layout.to_string();
+    match who {
+        Principal::Token => {
+            crate::web_accounts::write_desktop_layout(&ctx.env, &json)?;
+            if let Some(f) = &ctx.on_desktop_layout {
+                f(&json);
+            }
+        }
+        Principal::User { name, .. } => crate::web_accounts::write_layout(&ctx.env, name, &json)?,
+    }
+    Ok(out)
+}
+
+/// `{"session": "<id>"}` or `{"terminal": {"cwd": "<dir>"}}` (or `"terminal": true`).
+fn pane_of(v: &serde_json::Value) -> Result<crate::screens::Pane, String> {
+    if let Some(id) = v["session"].as_str().filter(|s| !s.is_empty()) {
+        return Ok(crate::screens::Pane::Session(id.to_string()));
+    }
+    if !v["terminal"].is_null() {
+        let cwd = v["terminal"]["cwd"].as_str().filter(|s| !s.is_empty()).map(str::to_string);
+        return Ok(crate::screens::Pane::Terminal { cwd });
+    }
+    Err("a pane is {\"session\": id} or {\"terminal\": {\"cwd\": dir}}".into())
+}
+
+/// `POST /v1/screens {name?, directory?, panes: [...]}`: a new Screen, filed
+/// under the project `directory` belongs to.
+fn screen_new(stream: &mut TcpStream, req: &Request, ctx: &Ctx, who: &Principal) {
+    let body: serde_json::Value = serde_json::from_slice(&req.body).unwrap_or_default();
+    let panes: Result<Vec<_>, _> = body["panes"].as_array().into_iter().flatten().map(pane_of).collect();
+    let panes = match panes {
+        Ok(p) => p,
+        Err(e) => return respond_json(stream, 400, &err_json(&e)),
+    };
+    let project = body["directory"]
+        .as_str()
+        .map(|dir| {
+            let projects: Vec<(String, String)> = crate::project::list_projects(&ctx.env)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| (p.id, p.path))
+                .collect();
+            crate::screens::project_for(dir, &projects)
+        })
+        .unwrap_or_default();
+    let name = body["name"].as_str().unwrap_or("");
+    match edit_layout(ctx, who, |l| crate::screens::new_screen(l, name, &panes, &project)) {
+        Ok((id, panes)) => respond_json(stream, 200, &serde_json::json!({ "id": id, "panes": panes }).to_string()),
+        Err(e) => respond_json(stream, 400, &err_json(&e)),
+    }
 }
 
 /// The versioned contract surface (CLI / curl / the SPA's file browser).
@@ -1167,6 +1243,21 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
                 }
             }
             Principal::User { .. } => respond_json(stream, 403, "{\"error\":\"the audit log is for the desktop's owner\"}"),
+        },
+        ("POST", ["screens"]) => screen_new(stream, req, ctx, who),
+        ("POST", ["screens", id, "panes"]) => {
+            let pane = match pane_of(&serde_json::from_slice(&req.body).unwrap_or_default()) {
+                Ok(p) => p,
+                Err(e) => return respond_json(stream, 400, &err_json(&e)),
+            };
+            match edit_layout(ctx, who, |l| crate::screens::add_pane(l, id, &pane)) {
+                Ok(pane) => respond_json(stream, 200, &serde_json::json!({ "pane": pane }).to_string()),
+                Err(e) => respond_json(stream, 404, &err_json(&e)),
+            }
+        }
+        ("DELETE", ["screens", id]) => match edit_layout(ctx, who, |l| crate::screens::close_screen(l, id)) {
+            Ok(()) => respond_json(stream, 200, "{\"ok\":true}"),
+            Err(e) => respond_json(stream, 404, &err_json(&e)),
         },
         ("GET", ["zen-models"]) => match crate::model_probe::fetch_zen_models() {
             Ok(ids) => {
@@ -3049,6 +3140,60 @@ mod tests {
         assert!(!raw.contains("long password") && !raw.contains("wrong one"), "{raw}");
         let one = call(port, "GET", "/v1/audit?action=terminal&limit=5", "").1;
         assert_eq!(serde_json::from_str::<Vec<crate::audit::Entry>>(&one).unwrap().len(), 2);
+        stop(&env, &state);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `osd screen new | add | close`: the token edits the window's Screens in
+    /// place (and the window hears of it at once), an account its own; both
+    /// are audited, and so is a script overwriting the window's layout whole.
+    #[test]
+    fn screens_are_added_to_and_closed_in_place() {
+        let (env, dir) = env_with_recorded_port("screens", None);
+        crate::web_accounts::set_password(&env, "ines", "a long password").unwrap();
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = seen.clone();
+        let state = GatewayState::default().with_desktop_layout_listener(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string())));
+        let mut p = read_persisted(&env);
+        p.enabled = true;
+        write_persisted(&env, &p).unwrap();
+        let port = start_at(&env, &state, &p, None).unwrap();
+        let mine = r#"{"activeGroupId":"g1","groups":[{"id":"g1","name":"","tree":{"kind":"leaf","id":"p1","sessionId":"ses_a"},"focusedLeafId":"p1","zoomedLeafId":null}]}"#;
+        crate::web_accounts::write_desktop_layout(&env, mine).unwrap();
+
+        let (status, body) = call(port, "POST", "/v1/screens", r#"{"name":"Six","panes":[{"session":"s1"},{"terminal":{"cwd":"/repo"}}]}"#);
+        assert_eq!(status, 200, "{body}");
+        let made: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((made["id"].as_str(), made["panes"].as_array().unwrap().len()), (Some("g2"), 2));
+        let layout = |env: &Env| serde_json::from_str::<serde_json::Value>(&crate::web_accounts::read_desktop_layout(env).unwrap().1).unwrap();
+        let l = layout(&env);
+        assert_eq!(l["groups"][0]["tree"]["sessionId"], "ses_a", "the window's Screen is untouched");
+        assert_eq!(l["groups"][1]["name"], "Six");
+        assert_eq!(seen.lock().unwrap().len(), 1, "the window hears of it");
+
+        assert_eq!(call(port, "POST", "/v1/screens/g2/panes", r#"{"session":"s2"}"#).0, 200);
+        assert_eq!(call(port, "POST", "/v1/screens/g9/panes", r#"{"session":"s2"}"#).0, 404);
+        assert_eq!(call(port, "POST", "/v1/screens/g2/panes", r#"{"nothing":1}"#).0, 400);
+        assert_eq!(call(port, "DELETE", "/v1/screens/g2", "").0, 200);
+        assert_eq!(layout(&env)["groups"].as_array().unwrap().len(), 1);
+
+        // An account edits its own Screens, never the window's.
+        let (_, login) = call_as(port, "POST", "/v1/login", None, r#"{"name":"ines","password":"a long password"}"#);
+        let ines = format!("Bearer {}", serde_json::from_str::<serde_json::Value>(&login).unwrap()["token"].as_str().unwrap());
+        assert_eq!(call_as(port, "POST", "/v1/screens", Some(&ines), r#"{"panes":[{"session":"s3"}]}"#).0, 200);
+        assert_eq!(layout(&env)["groups"].as_array().unwrap().len(), 1);
+        let own: serde_json::Value = serde_json::from_str(&crate::web_accounts::read_layout(&env, "ines").unwrap()).unwrap();
+        assert_eq!(own["groups"][0]["tree"]["sessionId"], "s3");
+
+        // A script overwriting the window's layout whole is on the record; a browser saving it is not.
+        call(port, "PUT", "/v1/layout/desktop", mine);
+        let browser = "Bearer t\r\nUser-Agent: Mozilla/5.0";
+        call_as(port, "PUT", "/v1/layout/desktop", Some(browser), mine);
+        let actions: Vec<String> = crate::audit::query(&env, &crate::audit::Filter::default()).unwrap().into_iter().map(|e| e.action).collect();
+        assert_eq!(actions.iter().filter(|a| *a == "layout.replace").count(), 1, "{actions:?}");
+        for a in ["screen.new", "screen.add", "screen.close"] {
+            assert!(actions.iter().any(|x| x == a), "{a} in {actions:?}");
+        }
         stop(&env, &state);
         std::fs::remove_dir_all(&dir).unwrap();
     }

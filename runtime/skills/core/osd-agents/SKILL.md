@@ -1,77 +1,61 @@
 ---
 name: osd-agents
-description: Use when the user hands you an "[OSD session]", "[OSD terminal]" or "[OSD screen]" reference, or asks you to look at, ask, or coordinate with another conversation, another agent, or a terminal (Claude Code, Codex, a shell) on this workbench — "see what the other agent is doing", "ask session X", "tell the Claude Code in that terminal to…". Reads them and messages them with the `osd` command.
+description: Use for anything about the workbench's own sessions, Screens and terminals — opening a Screen, splitting it into several sessions or terminals, closing one; reading another conversation or the Claude Code / Codex in a terminal and messaging it; or acting on an "[OSD session]", "[OSD terminal]" or "[OSD screen]" reference the user pasted. All of it goes through the `osd` command.
 ---
 
-# Other sessions and terminals
+# The workbench: sessions, Screens, terminals
 
-Everything on this workbench can be read and messaged with `osd`, which is on
-your PATH. The user copies a reference from the app (right-click → "Copy
-reference for an agent") and pastes it to you; it names the thing and the
-commands for it:
+`osd` is on your PATH and already connected to this workbench. Three things
+are reachable through it:
+
+- **Sessions**: conversations, each with its own folder.
+- **Screens**: the tabs at the top of the app. Each one is split into panes,
+  and each pane shows a session or a terminal.
+- **Terminals**: shells, some running Claude Code or Codex.
+
+`osd screen ls` shows all of it at once, with the ids every other command takes.
+
+## Screens
 
 ```
-[OSD session] Fold proteins · ses_e97a59758ffe… · /Users/me/OpenScience/sessions/2026-10-22-2058
-  read: osd session show ses_e97a59758ffe…
-  send and wait for the reply: osd session send ses_e97a59758ffe… "<message>" --wait
-
-[OSD terminal] Claude Code · p585 · /Users/me/repo
-  read: osd term read p585
-  send and wait for the reply: osd term send p585 "<message>" --wait
+osd screen new --sessions 6 --name "Six"      # a new Screen, split evenly among 6 new conversations
+osd screen new ses_a ses_b --terminals 1      # existing conversations and a terminal, side by side
+osd screen add g12 --new                       # one more pane: a new conversation (or a SESSION_ID, or --terminal)
+osd screen close g12                           # close it; the conversations are kept
 ```
 
-Without a reference, `osd screen ls` lists every Screen and what is in it, with
-the same ids.
+New conversations and terminals start in your folder unless you pass
+`--directory DIR` or `--project NAME`. A new Screen appears in the user's
+tab bar right away, and the user stays on the Screen they were looking at.
 
-## Read before you write
-
-Always read first. Writing into something you have not looked at lands in the
-middle of someone else's work.
+## Reading and messaging
 
 | You have | Read it | Send to it |
 |---|---|---|
 | a session `ses_…` | `osd session show <id>` | `osd session send <id> "<message>" --wait` |
-| a terminal running Claude Code or Codex | `osd term read <id>` (add `--turns 3` for more history) | `osd term send <id> "<message>" --wait` |
-| a terminal running a plain shell | `osd term read <id>` (its last 40 lines; `--lines N`) | `osd term send <id> "<command>"` — **this runs the command** |
+| a terminal running Claude Code or Codex | `osd term read <id>` (`--turns 3` for more) | `osd term send <id> "<message>" --wait` |
+| a terminal running a plain shell | `osd term read <id>` (last 40 lines; `--lines N`) | `osd term send <id> "<command>"`. **This runs the command.** |
 
-`osd term read` on an agent shows its own conversation and whether it is busy:
+Read before you write: a message lands in the middle of someone else's work.
+`osd term read` on an agent says whether it is `working`; a message sent then
+waits in its queue and does not interrupt.
 
-```
-Claude Code · working · /Users/me/repo
-
---- user
-fix the build
-
-  → Bash: cargo build
-```
-
-`working` means it has not finished its turn. A message sent now waits in its
-queue until it does, so `--wait` takes longer; it does not interrupt.
-
-## Writing a message to another agent
-
-The other agent does not know you exist. Every message says who you are, what
-you need and what to send back, in one go:
+The other agent does not know who you are. Write every message so it stands
+alone: who you are, what you need, what to send back.
 
 > I'm the agent in the "Fold proteins" session. I need the path of the
 > AlphaFold outputs you produced today. Reply with the path only.
 
-- One question per message; ask for a short, specific reply.
-- `--wait` prints its answer. Without it the message is sent and you get
-  nothing back — read it later with the read command.
-- Relay what you learned to the user in your own words. Do not paste a whole
-  transcript.
-- A file of the other conversation lives in ITS folder, not yours: when you
-  name one to the user, write the full path (the folder from the reference +
-  the path), so it opens with a click.
+When you tell the user about another conversation's files, give full paths.
+Their folder is not yours.
 
 ## Limits
 
-- **Five messages per ten minutes.** Past that `osd` fails with "stop and ask
-  the user". Do exactly that: tell the user what you have done and ask whether
-  to continue. Never work around the limit.
-- Never send a plain shell a command the user has not asked for: it runs as
-  the user, outside your workspace and your approvals.
-- `no gateway found`: remote access is off. Ask the user to turn it on in
-  Settings › Remote access. `terminals are off`: the same page, "Allow
-  terminal".
+- One conversation may send five messages in ten minutes. Past that, `osd`
+  says to stop and ask the user. Tell the user what you have done and ask
+  whether to go on.
+- A plain shell runs what you send as the user, outside your workspace and
+  your approvals. Send it only commands the user asked for.
+- `no gateway found` means remote access is off. Ask the user to turn it on in
+  Settings › Remote access. `terminals are off` means "Allow terminal" on the
+  same page is off.

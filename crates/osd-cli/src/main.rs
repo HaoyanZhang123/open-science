@@ -31,6 +31,13 @@ osd — Open Science Desktop without a window
   osd screen ls                     every Screen and what is in it: sessions,
                                     terminals (and the agent in each), with
                                     the ids the other commands take
+  osd screen new [SESSION_ID…] [--sessions N] [--terminals N] [--name NAME]
+                 [--project NAME | --directory DIR]
+                                    a new Screen, split evenly among its panes
+                                    (--sessions starts new conversations)
+  osd screen add <SCREEN> [SESSION_ID | --new | --terminal]
+                                    one more pane, beside the others
+  osd screen close <SCREEN>         close it (the conversations are kept)
   osd term read <id> [--turns N] [--lines N]
                                     what a terminal is doing: the agent's own
                                     conversation (Claude Code, Codex), or a
