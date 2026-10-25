@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { TerminalPane } from "./TerminalPane";
 
-vi.mock("@/lib/tauri", () => ({ isTauri: true }));
+vi.mock("@/lib/tauri", () => ({ isTauri: true, isMacUA: () => true }));
 vi.mock("./terminalLinks", () => ({ registerTerminalLinks: () => ({ dispose() {} }) }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 vi.mock("@tauri-apps/api/core", () => ({
@@ -81,6 +81,13 @@ describe("TerminalPane find", () => {
 
     // With the bar shut, Escape belongs to the shell again.
     expect(xterm.keyHandler!(key({ key: "Escape" }))).toBe(true);
+  });
+
+  it("leaves Ctrl+F to the shell on a Mac — it is the line editor's forward-char", async () => {
+    render(<TerminalPane leafId="t2" />);
+    await waitFor(() => expect(xterm.keyHandler).not.toBeNull());
+    expect(xterm.keyHandler!(key({ key: "f", ctrlKey: true }))).toBe(true);
+    expect(screen.queryByRole("textbox", { name: "Find" })).not.toBeInTheDocument();
   });
 });
 

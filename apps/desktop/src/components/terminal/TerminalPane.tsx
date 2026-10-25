@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isTauri } from "@/lib/tauri";
+import { isMacUA, isTauri } from "@/lib/tauri";
 import { isGatewayWeb } from "@/lib/webMode";
 import { copyText } from "@/lib/clipboard";
 import { useRuntimeStore } from "@/lib/runtime";
@@ -27,6 +27,7 @@ import {
 import { registerTerminalLinks } from "./terminalLinks";
 import { TerminalSearch } from "./TerminalSearch";
 import { isJumpChord } from "@/components/jump-palette/JumpPalette";
+import { createKeyTranslator } from "./terminalKeys";
 
 /**
  * A real shell in a pane.
@@ -152,12 +153,24 @@ export function TerminalPane({
       // Set before the first write: widths are fixed as text enters the buffer.
       term.loadAddon(new Unicode11Addon());
       term.unicode.activeVersion = "11";
-      // ⌘F / Ctrl+F belongs to the app, not to the shell: xterm would otherwise
-      // pass it through and some full-screen program would act on it.
+      const translateKey = createKeyTranslator(isMacUA());
       term.attachCustomKeyEventHandler((event) => {
+        // Keys a native terminal sends differently (Shift+Enter, Option as
+        // Meta, ⌘←/→/⌫) — see terminalKeys.
+        const translated = translateKey(event);
+        if (translated === false) return false;
+        if (translated !== null) {
+          event.preventDefault();
+          term.input(translated);
+          return false;
+        }
+        // Find belongs to the app, not to the shell: xterm would otherwise pass
+        // it through and some full-screen program would act on it. ⌘F on a
+        // Mac, where Ctrl+F is the line editor's "forward one character";
+        // Ctrl+F elsewhere.
         if (
           event.type === "keydown" &&
-          (event.metaKey || event.ctrlKey) &&
+          (isMacUA() ? event.metaKey : event.ctrlKey) &&
           event.key.toLowerCase() === "f"
         ) {
           event.preventDefault();
