@@ -144,6 +144,11 @@ export function FilePreviewInspector({
    *  routine — the agent edits the files you are reading — so the editor says
    *  so and refuses to overwrite silently. */
   const [changedOnDisk, setChangedOnDisk] = useState(false);
+  /** Bumped by "reload": the load below runs again on it. Clearing the text
+   *  and showing the spinner did not by themselves read anything, so the pane
+   *  spun forever — and with no text, the disk watch saw a change at once and
+   *  offered the reload again, round after round. */
+  const [reloads, setReloads] = useState(0);
 
   // Clear the previous file even when this pane is currently in the background
   // and must wait for its workspace to become active before loading the next
@@ -214,7 +219,8 @@ export function FilePreviewInspector({
             setError(t("filePreview.desktopOnly"));
           }
         }
-        if (needsText && data.content === undefined) {
+        // A reload takes what is on disk, whatever the pane was opened with.
+        if (needsText && (data.content === undefined || reloads > 0)) {
           const f = await readArtifact(data.path, data.root);
           if (cancelled) return;
           if (f && f.encoding === "utf8") setText(f.data);
@@ -253,6 +259,7 @@ export function FilePreviewInspector({
     needsBytes,
     waitingForWorkspace,
     workspaceDirectory,
+    reloads,
   ]);
 
   // An editor pane starts editing the moment its text has loaded. Guarded on
@@ -306,7 +313,9 @@ export function FilePreviewInspector({
   /** The agent writes the files you are reading. Watch for it: a save that
    *  blindly wrote the buffer would erase the agent's work with no trace. */
   useEffect(() => {
-    if (!autoSave || !isTauri || isGatewayWeb) return;
+    // Nothing loaded yet is nothing to compare with: every read would look
+    // like a change.
+    if (!autoSave || !isTauri || isGatewayWeb || text === null) return;
     const timer = setInterval(() => {
       void readArtifact(data.path, data.root).then((file) => {
         if (!file || file.encoding !== "utf8") return;
@@ -409,6 +418,7 @@ export function FilePreviewInspector({
               setDraft(null);
               setText(null);
               setLoading(true);
+              setReloads((n) => n + 1);
             }}
             className="shrink-0 whitespace-nowrap rounded-input bg-warn/15 px-2 py-0.5 text-xs text-warn"
             title={t("filePreview.changedOnDiskTitle")}

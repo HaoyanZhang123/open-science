@@ -449,6 +449,28 @@ describe("FilePreviewInspector — an editor pane", () => {
     );
   });
 
+  it("reloads what another writer put on disk, once, and goes back to watching", async () => {
+    const onDisk = { text: "v1\n" };
+    vi.mocked(readArtifact).mockImplementation(async () => ({
+      path: "analysis/run.py", mime: "text/x-python", encoding: "utf8", data: onDisk.text, size: onDisk.text.length,
+    }));
+    const file: FilePreviewInspectorT = { variant: "file", path: "analysis/run.py", filename: "run.py", artifact: "report" };
+    render(<FilePreviewInspector data={file} onClose={() => {}} startEditing />);
+    expect(await screen.findByRole("textbox", { name: "Editing run.py" })).toHaveValue("v1\n");
+
+    // An agent rewrites it: the pane says so…
+    onDisk.text = "v2\n";
+    const reload = await screen.findByRole("button", { name: "Changed on disk — reload" }, { timeout: 3000 });
+    await userEvent.click(reload);
+    // …and the reload reads it — it used to spin on "Loading" for good.
+    expect(await screen.findByRole("textbox", { name: "Editing run.py" })).toHaveValue("v2\n");
+    expect(screen.queryByText(/Loading run.py/)).not.toBeInTheDocument();
+    // Nothing changed since: no new warning.
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(screen.queryByRole("button", { name: "Changed on disk — reload" })).not.toBeInTheDocument();
+    vi.mocked(readArtifact).mockReset();
+  }, 10_000);
+
   it("saves on its own, and says which state it is in", async () => {
     const editor = await (async () => {
       render(<FilePreviewInspector data={py} onClose={() => {}} startEditing />);
