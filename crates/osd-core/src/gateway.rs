@@ -915,6 +915,9 @@ fn v1(stream: &mut TcpStream, req: &Request, ctx: &Ctx, rest: &str, who: &Princi
             let payload = serde_json::json!({
                 "mode": mode,
                 "directory": ws_dir(ctx),
+                // The base folder, so a client can name a session's files the
+                // way the Files tree does (base-relative), e.g. for links.
+                "base": crate::runtime::base_workspace_dir(&ctx.env).ok().map(|p| p.to_string_lossy().into_owned()),
                 "terminal": ctx.terminals().is_some(),
                 "user": user,
             });

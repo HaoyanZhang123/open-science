@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Options as ReactMarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -117,6 +117,7 @@ export function MarkdownViewer({
   links?: boolean;
 }) {
   const s = STYLES[variant];
+  const folder = useContext(LinkFolder);
   const normalized = useMemo(() => normalizeMathDelimiters(children), [children]);
   const plugins = useMemo(() => pluginsFor(normalized), [normalized]);
   return (
@@ -145,7 +146,7 @@ export function MarkdownViewer({
                 if (links) {
                   // Read now: React may reuse the event once this returns.
                   const { clientX, clientY, metaKey, ctrlKey, shiftKey } = event;
-                  void resolveLink(href).then(
+                  void resolveLink(href, "workspace", folder).then(
                     (target) =>
                       target && activateLink(target, { clientX, clientY, metaKey, ctrlKey, shiftKey }),
                   );
@@ -204,17 +205,22 @@ export function MarkdownViewer({
 /** Inline code that names something openable — a URL, or a path that exists —
  *  becomes a link: underlined on hover, the link menu on click. Anything else
  *  stays plain code; the lookup is cached, so a re-render asks nothing. */
+/** The folder of the conversation a piece of markdown belongs to: its
+ *  relative paths are looked up there (see `resolveLink`). */
+export const LinkFolder = createContext<string | undefined>(undefined);
+
 function LinkCode({ children, className }: { children: string; className: string }) {
   const [target, setTarget] = useState<LinkTarget | null>(null);
+  const folder = useContext(LinkFolder);
   useEffect(() => {
     let live = true;
     const text = children.trim();
     if (/^https?:\/\//.test(text) || looksLikePath(cleanPath(text)))
-      void resolveLink(text).then((t) => live && setTarget(t));
+      void resolveLink(text, "workspace", folder).then((t) => live && setTarget(t));
     return () => {
       live = false;
     };
-  }, [children]);
+  }, [children, folder]);
   if (!target) return <code className={className}>{children}</code>;
   return (
     <code

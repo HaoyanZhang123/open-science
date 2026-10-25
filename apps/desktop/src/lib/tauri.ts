@@ -827,7 +827,16 @@ export async function workspacePath(): Promise<string | null> {
 }
 
 /** The base folder containing `projects/` and `sessions/` (desktop only). */
+let webBase: Promise<string | null> | undefined;
+
 export async function workspaceBase(): Promise<string | null> {
+  // A browser asks the gateway, once: the base folder does not move under it.
+  if (isGatewayWeb) {
+    webBase ??= gatewayGet<{ base?: string | null }>("/v1/whoami")
+      .then((w) => w?.base ?? null)
+      .catch(() => null);
+    return webBase;
+  }
   if (!isTauri) return null;
   try {
     const { invoke } = await import("@tauri-apps/api/core");

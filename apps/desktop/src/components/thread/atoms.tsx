@@ -15,7 +15,7 @@ import type {
 } from "@ai4s/shared";
 import { MessageMeta } from "./MessageMeta";
 import { cn } from "@/lib/cn";
-import { MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
+import { LinkFolder, MarkdownViewer } from "@/components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock } from "@/lib/artifacts";
 import { resolveArtifactPath } from "@/lib/artifactFile";
 import { useThrottledValue } from "@/lib/useThrottledValue";
@@ -313,11 +313,14 @@ export const AgentMessage = memo(function AgentMessage({
     // Marked so a text selection inside an ANSWER (never a tool log or the
     // user's own message) can offer follow-up actions — see SelectionActions.
     <div {...{ [HOVER_HOST]: "" }} data-agent-message className="relative">
-      {segments ? (
-        <StreamingMarkdown segments={segments} />
-      ) : (
-        <MarkdownViewer links>{shown}</MarkdownViewer>
-      )}
+      {/* Paths in the answer are this conversation's files (see LinkFolder). */}
+      <LinkFolder.Provider value={directory}>
+        {segments ? (
+          <StreamingMarkdown segments={segments} />
+        ) : (
+          <MarkdownViewer links>{shown}</MarkdownViewer>
+        )}
+      </LinkFolder.Provider>
       {refs.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {refs.map((path) => (
