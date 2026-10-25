@@ -36,11 +36,11 @@ describe("terminal header: who typed into it from outside", () => {
     ]);
     render(<TerminalSenders leafId="p7" />);
     const badge = await screen.findByRole("button", { name: /Coordinator B/ });
-    const tip = badge.getAttribute("title") ?? "";
-    expect(tip).toContain("Recent input from outside:");
-    expect(tip).toContain("Coordinator B: what failed?⏎");
-    expect(tip).toContain("lab1: make test⏎");
-    expect(tip).not.toContain("ls⏎");
+    await userEvent.hover(badge);
+    expect((await screen.findAllByText("Recent input from outside:")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("what failed?⏎").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("make test⏎").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("ls⏎")).toHaveLength(0);
     await userEvent.click(badge);
     expect(copyReference).toHaveBeenCalledWith(expect.stringContaining("[OSD session] Coordinator B · ses_b · /w/b"), expect.any(String));
   });

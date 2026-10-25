@@ -419,7 +419,10 @@
       "revert": "Revertir aquí"
     },
     "sentByAgentFull": "Enviado por el agente de «{{session}}» ({{id}}). Haz clic para copiar su referencia para un agente.",
-    "sentByAccount": "Enviado por la cuenta {{account}}"
+    "sentByAccount": "Enviado por la cuenta {{account}}",
+    "sentByAgentLabel": "Enviado por el agente de",
+    "sentByAccountLabel": "Enviado por la cuenta",
+    "clickToCopyRef": "Haz clic para copiar su referencia para un agente"
   },
   "historyRepair": {
     "reason": {

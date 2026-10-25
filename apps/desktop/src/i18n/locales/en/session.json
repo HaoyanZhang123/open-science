@@ -419,7 +419,10 @@
       "revert": "Revert here"
     },
     "sentByAgentFull": "Sent by the agent in “{{session}}” ({{id}}). Click to copy its reference for an agent.",
-    "sentByAccount": "Sent by the account {{account}}"
+    "sentByAccount": "Sent by the account {{account}}",
+    "sentByAgentLabel": "Sent by the agent in",
+    "sentByAccountLabel": "Sent by the account",
+    "clickToCopyRef": "Click to copy its reference for an agent"
   },
   "historyRepair": {
     "reason": {

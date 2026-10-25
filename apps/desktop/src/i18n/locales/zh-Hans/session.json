@@ -410,7 +410,10 @@
       "revert": "回退到这里"
     },
     "sentByAgentFull": "由「{{session}}」里的 Agent 发送（{{id}}）。点击复制它的引用，可直接交给 Agent。",
-    "sentByAccount": "由账号 {{account}} 发送"
+    "sentByAccount": "由账号 {{account}} 发送",
+    "sentByAgentLabel": "由这个会话里的 Agent 发送",
+    "sentByAccountLabel": "由账号发送",
+    "clickToCopyRef": "点击复制引用，可直接交给 Agent"
   },
   "historyRepair": {
     "reason": {

@@ -419,7 +419,10 @@
       "revert": "Hierher zurücksetzen"
     },
     "sentByAgentFull": "Gesendet vom Agenten in „{{session}}“ ({{id}}). Klicken, um seinen Verweis für einen Agenten zu kopieren.",
-    "sentByAccount": "Gesendet vom Konto {{account}}"
+    "sentByAccount": "Gesendet vom Konto {{account}}",
+    "sentByAgentLabel": "Gesendet vom Agenten in",
+    "sentByAccountLabel": "Gesendet vom Konto",
+    "clickToCopyRef": "Klicken, um den Verweis für einen Agenten zu kopieren"
   },
   "historyRepair": {
     "reason": {

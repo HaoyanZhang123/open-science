@@ -410,7 +410,10 @@
       "revert": "여기로 되돌리기"
     },
     "sentByAgentFull": "“{{session}}”의 에이전트가 보냄({{id}}). 클릭하면 에이전트용 참조를 복사합니다.",
-    "sentByAccount": "계정 {{account}}이(가) 보냄"
+    "sentByAccount": "계정 {{account}}이(가) 보냄",
+    "sentByAgentLabel": "이 대화의 에이전트가 보냄",
+    "sentByAccountLabel": "계정이 보냄",
+    "clickToCopyRef": "클릭하면 에이전트용 참조를 복사합니다"
   },
   "historyRepair": {
     "reason": {

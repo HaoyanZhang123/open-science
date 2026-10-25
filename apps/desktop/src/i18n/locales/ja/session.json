@@ -410,7 +410,10 @@
       "revert": "ここまで戻す"
     },
     "sentByAgentFull": "「{{session}}」のエージェントが送信（{{id}}）。クリックでエージェント用の参照をコピー。",
-    "sentByAccount": "アカウント {{account}} が送信"
+    "sentByAccount": "アカウント {{account}} が送信",
+    "sentByAgentLabel": "このセッションのエージェントが送信",
+    "sentByAccountLabel": "アカウントが送信",
+    "clickToCopyRef": "クリックでエージェント用の参照をコピー"
   },
   "historyRepair": {
     "reason": {

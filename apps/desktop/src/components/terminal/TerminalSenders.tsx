@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { queryAudit, type AuditEntry } from "@/lib/tauri";
 import { useRuntimeStore } from "@/lib/runtime";
 import { terminalShellId } from "@/lib/terminalTransport";
@@ -20,7 +19,6 @@ const fromOutside = (e: AuditEntry) => !!e.via || e.actor.startsWith("account:")
  * click (for an agent) to copy that conversation's reference.
  */
 export function TerminalSenders({ leafId }: { leafId: string }) {
-  const { t } = useTranslation("session");
   const [recent, setRecent] = useState<AuditEntry[]>([]);
   useEffect(() => {
     const shell = terminalShellId(leafId);
@@ -45,9 +43,6 @@ export function TerminalSenders({ leafId }: { leafId: string }) {
   });
   const who = (s: MessageSender) => [s.account, s.viaSession].filter(Boolean).join(" · ");
   const when = (utc: string) => new Date(utc).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  const detail = [
-    t("terminal.recentInput"),
-    ...recent.map((e) => `${when(e.time)}  ${who(senderOf(e))}: ${e.detail ?? ""}`),
-  ].join("\n");
-  return <SenderBadge sender={senderOf(recent[0])} detail={detail} className="max-w-[12rem]" />;
+  const lines = recent.map((e) => ({ time: when(e.time), who: who(senderOf(e)), text: e.detail ?? "" }));
+  return <SenderBadge sender={senderOf(recent[0])} lines={lines} className="max-w-[12rem]" />;
 }
